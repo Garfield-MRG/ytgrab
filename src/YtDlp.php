@@ -184,6 +184,112 @@ final class YtDlp
     }
 
     /**
+     * Vrai si le format demande est accepte : best, mp3, ou une hauteur en pixels.
+     */
+    public static function isValidFormat(string $format): bool
+    {
+        return preg_match('#^(best|mp3|\d{3,4})$#', $format) === 1;
+    }
+
+    /**
+     * Construit la commande yt-dlp de telechargement, en tableau d'arguments.
+     *
+     * @return list<string>
+     */
+    public static function downloadArgs(string $videoId, string $format, string $outDir): array
+    {
+        $bin = self::findBinary('yt-dlp');
+        if ($bin === null) {
+            throw new \RuntimeException('yt-dlp est introuvable dans le PATH');
+        }
+        if (!self::isValidFormat($format)) {
+            throw new \InvalidArgumentException('Format inconnu : ' . $format);
+        }
+
+        $args = [
+            $bin,
+            '--no-playlist',
+            '--restrict-filenames',
+            '--newline',
+            // --print implique --quiet, mais --progress reactive les lignes de
+            // progression : on garde un stdout parsable ligne par ligne.
+            '--no-simulate',
+            '--progress',
+            '--print', 'after_move:filepath',
+            '-o', $outDir . DIRECTORY_SEPARATOR . '%(title)s [%(id)s].%(ext)s',
+        ];
+
+        if ($format === 'mp3') {
+            array_push($args, '-f', 'bestaudio/best', '--extract-audio', '--audio-format', 'mp3');
+        } elseif ($format === 'best') {
+            array_push($args, '-f', 'bestvideo+bestaudio/best', '--merge-output-format', 'mp4');
+        } else {
+            $h = (int) $format;
+            array_push(
+                $args,
+                '-f',
+                "bestvideo[height<={$h}]+bestaudio/best[height<={$h}]",
+                '--merge-output-format',
+                'mp4',
+            );
+        }
+
+        $args[] = UrlValidator::canonicalUrl($videoId);
+
+        return $args;
+    }
+
+    /**
+     * Telechargement bloquant : attend la fin de yt-dlp et retourne le fichier.
+     *
+     * @return array{file:string, size:int}
+     */
+    public static function download(string $videoId, string $format, string $outDir): array
+    {
+        $run = self::runCapture(self::downloadArgs($videoId, $format, $outDir), 1800);
+
+        if ($run['exit'] !== 0) {
+            throw new \RuntimeException(self::shortError($run['stderr']));
+        }
+
+        $filePath = self::extractFinalPath($run['stdout'], $outDir);
+        if ($filePath === null) {
+            throw new \RuntimeException('Telechargement termine mais fichier introuvable');
+        }
+
+        return [
+            'file' => basename($filePath),
+            'size' => (int) filesize($filePath),
+        ];
+    }
+
+    /**
+     * Retrouve le chemin final imprime par `--print after_move:filepath` et
+     * verifie qu'il reste bien dans le dossier de telechargement
+     * (protection contre le path traversal).
+     */
+    public static function extractFinalPath(string $stdout, string $outDir): ?string
+    {
+        $realOutDir = realpath($outDir);
+        if ($realOutDir === false) {
+            return null;
+        }
+
+        $lines = array_values(array_filter(array_map('trim', explode("\n", $stdout))));
+        foreach (array_reverse($lines) as $line) {
+            if (!is_file($line)) {
+                continue;
+            }
+            $real = realpath($line);
+            if ($real !== false && str_starts_with($real, $realOutDir . DIRECTORY_SEPARATOR)) {
+                return $real;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Extrait un message d'erreur court et utile du stderr de yt-dlp.
      */
     private static function shortError(string $stderr): string

@@ -79,6 +79,30 @@ if ($path === '/api/metadata' && $method === 'POST') {
     }
 }
 
+if ($path === '/api/download' && $method === 'POST') {
+    $body = json_decode(file_get_contents('php://input') ?: '', true);
+    $videoId = \is_array($body) ? (string) ($body['id'] ?? '') : '';
+    $format = \is_array($body) ? (string) ($body['format'] ?? '') : '';
+
+    if (!UrlValidator::isValidId($videoId)) {
+        json_response(['error' => 'ID video invalide'], 422);
+    }
+    if (!YtDlp::isValidFormat($format)) {
+        json_response(['error' => 'Format invalide'], 422);
+    }
+
+    // Telechargement bloquant (etape 3) : la requete dure le temps du
+    // download, on leve donc la limite d'execution. Passage en process
+    // detache a l'etape 4.
+    set_time_limit(0);
+
+    try {
+        json_response(YtDlp::download($videoId, $format, DOWNLOADS_DIR));
+    } catch (\RuntimeException $e) {
+        json_response(['error' => $e->getMessage()], 502);
+    }
+}
+
 if (str_starts_with($path, '/api/')) {
     json_response(['error' => 'Route inconnue : ' . $path], 404);
 }

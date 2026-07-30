@@ -110,7 +110,39 @@ form.addEventListener("submit", async (event) => {
     }
 });
 
-downloadBtn.addEventListener("click", () => {
-    // Etape 3 : lancement du telechargement.
-    previewHint.textContent = "Pas encore branche : le telechargement arrive a l'etape 3.";
+function formatSize(bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+        return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " Go";
+    }
+    if (bytes >= 1024 * 1024) {
+        return (bytes / (1024 * 1024)).toFixed(1) + " Mo";
+    }
+    return Math.round(bytes / 1024) + " Ko";
+}
+
+downloadBtn.addEventListener("click", async () => {
+    if (!currentVideo) {
+        return;
+    }
+
+    downloadBtn.disabled = true;
+    downloadBtn.textContent = "Telechargement...";
+    previewHint.textContent = "Telechargement en cours, la requete peut durer un moment (progression en direct a l'etape 4).";
+
+    try {
+        const result = await api("download", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                id: currentVideo.id,
+                format: formatSelect.value,
+            }),
+        });
+        previewHint.textContent = "Termine : " + result.file + " (" + formatSize(result.size) + ")";
+    } catch (err) {
+        previewHint.textContent = "Echec : " + err.message;
+    } finally {
+        downloadBtn.disabled = false;
+        downloadBtn.textContent = "Telecharger";
+    }
 });

@@ -43,12 +43,20 @@ final class UrlValidator
     }
 
     /**
+     * Vrai si la chaine est un ID video valide.
+     */
+    public static function isValidId(string $id): bool
+    {
+        return preg_match('#^' . self::ID_PATTERN . '$#', $id) === 1;
+    }
+
+    /**
      * Reconstruit une URL canonique a partir d'un ID valide.
      * C'est cette URL, et jamais l'entree utilisateur, qui est passee a yt-dlp.
      */
     public static function canonicalUrl(string $id): string
     {
-        if (preg_match('#^' . self::ID_PATTERN . '$#', $id) !== 1) {
+        if (!self::isValidId($id)) {
             throw new \InvalidArgumentException('ID video invalide');
         }
 
