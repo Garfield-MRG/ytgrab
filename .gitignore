@@ -1,0 +1,6 @@
+/vendor/
+/composer.phar
+/storage/downloads/*
+/storage/jobs/*
+!/storage/downloads/.gitkeep
+!/storage/jobs/.gitkeep
