@@ -144,3 +144,7 @@ une hauteur en pixels (`1080`, `720`, ...), ou `mp3`.
 - Retelechargez la meme video dans une autre qualite et yt-dlp verra le
   fichier existant (meme nom) et ne retelechargera pas : supprimez d'abord
   le fichier si vous voulez changer de qualite.
+
+## Licence
+
+MIT, voir le fichier [LICENSE](LICENSE).

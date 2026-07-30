@@ -2,7 +2,7 @@
     "name": "oneup/ytgrab",
     "description": "Telechargeur YouTube local, self-hosted, base sur yt-dlp",
     "type": "project",
-    "license": "proprietary",
+    "license": "MIT",
     "require": {
         "php": ">=8.3"
     },
