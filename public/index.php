@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
+use App\UrlValidator;
 use App\YtDlp;
 
 const BASE_DIR = __DIR__ . '/..';
@@ -58,6 +59,24 @@ if ($path === '/api/health' && $method === 'GET') {
         'binaries' => $binaries,
         'install_hint' => $allFound ? null : YtDlp::installHint(),
     ]);
+}
+
+if ($path === '/api/metadata' && $method === 'POST') {
+    $body = json_decode(file_get_contents('php://input') ?: '', true);
+    $url = \is_array($body) ? (string) ($body['url'] ?? '') : '';
+
+    $videoId = UrlValidator::extractId($url);
+    if ($videoId === null) {
+        json_response([
+            'error' => 'URL non reconnue. Formats acceptes : youtube.com/watch?v=..., youtu.be/..., youtube.com/shorts/...',
+        ], 422);
+    }
+
+    try {
+        json_response(YtDlp::fetchMetadata($videoId));
+    } catch (\RuntimeException $e) {
+        json_response(['error' => $e->getMessage()], 502);
+    }
 }
 
 if (str_starts_with($path, '/api/')) {
@@ -130,11 +149,28 @@ function e(string $s): string
                    <?= $allFound ? '' : 'disabled' ?>>
             <button type="submit" <?= $allFound ? '' : 'disabled' ?>>Analyser</button>
         </form>
-        <p class="hint" id="form-hint">
-            <?= $allFound
-                ? 'Etape suivante : recuperation des metadonnees (a venir).'
-                : 'Installe les binaires manquants pour activer le formulaire.' ?>
-        </p>
+        <p class="error-msg hidden" id="form-error"></p>
+        <?php if (!$allFound): ?>
+        <p class="hint">Installe les binaires manquants pour activer le formulaire.</p>
+        <?php endif; ?>
+    </section>
+
+    <section class="card hidden" id="preview">
+        <div class="preview-body">
+            <img id="preview-thumb" alt="Miniature de la video">
+            <div class="preview-info">
+                <p class="preview-title" id="preview-title"></p>
+                <p class="preview-meta">
+                    <span id="preview-channel"></span>
+                    <span id="preview-duration"></span>
+                </p>
+                <div class="format-row">
+                    <select id="format-select"></select>
+                    <button type="button" id="download-btn">Telecharger</button>
+                </div>
+                <p class="hint" id="preview-hint"></p>
+            </div>
+        </div>
     </section>
 </main>
 <script src="assets/app.js"></script>

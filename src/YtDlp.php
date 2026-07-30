@@ -137,6 +137,68 @@ final class YtDlp
     }
 
     /**
+     * Recupere les metadonnees d'une video via `yt-dlp -J`.
+     *
+     * Ne prend qu'un ID video deja valide : l'URL passee a yt-dlp est
+     * toujours l'URL canonique reconstruite, jamais l'entree utilisateur.
+     *
+     * @return array{id:string, title:string, channel:string, thumbnail:string, duration:int, heights:list<int>}
+     */
+    public static function fetchMetadata(string $videoId): array
+    {
+        $bin = self::findBinary('yt-dlp');
+        if ($bin === null) {
+            throw new \RuntimeException('yt-dlp est introuvable dans le PATH');
+        }
+
+        $url = UrlValidator::canonicalUrl($videoId);
+        $run = self::runCapture([$bin, '-J', '--no-playlist', $url], 60);
+
+        if ($run['exit'] !== 0) {
+            throw new \RuntimeException(self::shortError($run['stderr']));
+        }
+
+        $data = json_decode($run['stdout'], true);
+        if (!\is_array($data)) {
+            throw new \RuntimeException('Reponse illisible de yt-dlp');
+        }
+
+        // Resolutions video disponibles, triees de la plus haute a la plus basse.
+        $heights = [];
+        foreach ($data['formats'] ?? [] as $format) {
+            if (($format['vcodec'] ?? 'none') !== 'none' && !empty($format['height'])) {
+                $heights[(int) $format['height']] = true;
+            }
+        }
+        $heights = array_keys($heights);
+        rsort($heights);
+
+        return [
+            'id' => $videoId,
+            'title' => (string) ($data['title'] ?? ''),
+            'channel' => (string) ($data['channel'] ?? $data['uploader'] ?? ''),
+            'thumbnail' => (string) ($data['thumbnail'] ?? ''),
+            'duration' => (int) ($data['duration'] ?? 0),
+            'heights' => $heights,
+        ];
+    }
+
+    /**
+     * Extrait un message d'erreur court et utile du stderr de yt-dlp.
+     */
+    private static function shortError(string $stderr): string
+    {
+        $lines = array_values(array_filter(array_map('trim', explode("\n", $stderr))));
+        foreach (array_reverse($lines) as $line) {
+            if (str_starts_with($line, 'ERROR')) {
+                return $line;
+            }
+        }
+
+        return $lines === [] ? 'yt-dlp a echoue sans message' : end($lines);
+    }
+
+    /**
      * Commande d'installation a suggerer quand un binaire manque.
      */
     public static function installHint(): string
