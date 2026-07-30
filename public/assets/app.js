@@ -185,6 +185,7 @@ function pollJob(jobId) {
             progressBar.style.width = "100%";
             progressStats.textContent = "";
             previewHint.textContent = "Termine : " + job.file + " (" + formatSize(job.size) + ")";
+            loadFiles();
         } else if (job.status === "error") {
             clearInterval(timer);
             endDownloadUi();
@@ -192,6 +193,61 @@ function pollJob(jobId) {
             previewHint.textContent = "Echec : " + job.error;
         }
     }, 500);
+}
+
+const filesList = document.getElementById("files-list");
+const filesEmpty = document.getElementById("files-empty");
+
+async function loadFiles() {
+    let data;
+    try {
+        data = await api("files");
+    } catch {
+        return;
+    }
+
+    filesList.innerHTML = "";
+    filesEmpty.classList.toggle("hidden", data.files.length > 0);
+
+    for (const file of data.files) {
+        const li = document.createElement("li");
+
+        const info = document.createElement("div");
+        info.className = "file-info";
+
+        const name = document.createElement("span");
+        name.className = "file-name";
+        name.textContent = file.name;
+        name.title = file.name;
+
+        const meta = document.createElement("span");
+        meta.className = "file-meta";
+        meta.textContent = formatSize(file.size) + "  ·  "
+            + new Date(file.mtime * 1000).toLocaleString("fr-FR", {
+                dateStyle: "short",
+                timeStyle: "short",
+            });
+
+        info.append(name, meta);
+
+        const actions = document.createElement("div");
+        actions.className = "file-actions";
+
+        const play = document.createElement("a");
+        play.className = "file-btn";
+        play.textContent = "Lire";
+        play.href = API_BASE + "file?name=" + encodeURIComponent(file.name);
+        play.target = "_blank";
+
+        const dl = document.createElement("a");
+        dl.className = "file-btn";
+        dl.textContent = "Telecharger";
+        dl.href = API_BASE + "file?name=" + encodeURIComponent(file.name) + "&dl=1";
+
+        actions.append(play, dl);
+        li.append(info, actions);
+        filesList.appendChild(li);
+    }
 }
 
 downloadBtn.addEventListener("click", async () => {
@@ -222,3 +278,5 @@ downloadBtn.addEventListener("click", async () => {
         previewHint.textContent = "Echec : " + err.message;
     }
 });
+
+loadFiles();

@@ -48,6 +48,88 @@ function json_response(array $data, int $status = 200): never
     exit;
 }
 
+/**
+ * Sert un fichier de storage/downloads/ en streaming, avec support des
+ * requetes Range (un seul intervalle) pour que la lecture video puisse
+ * avancer/reculer dans le navigateur.
+ */
+function serve_download_file(string $name, bool $attachment): never
+{
+    // Le nom ne doit etre qu'un nom de fichier : pas de separateur de
+    // chemin, pas de fichier cache. Puis realpath doit rester dans le
+    // dossier de telechargements.
+    if ($name === '' || $name[0] === '.' || preg_match('#[/\\\\]#', $name) === 1) {
+        http_response_code(404);
+        exit;
+    }
+    $base = realpath(DOWNLOADS_DIR);
+    $real = realpath(DOWNLOADS_DIR . DIRECTORY_SEPARATOR . $name);
+    if ($base === false || $real === false || !str_starts_with($real, $base . DIRECTORY_SEPARATOR) || !is_file($real)) {
+        http_response_code(404);
+        exit;
+    }
+
+    $size = (int) filesize($real);
+    $mime = match (strtolower(pathinfo($real, PATHINFO_EXTENSION))) {
+        'mp4' => 'video/mp4',
+        'webm' => 'video/webm',
+        'mkv' => 'video/x-matroska',
+        'mp3' => 'audio/mpeg',
+        'm4a' => 'audio/mp4',
+        'opus' => 'audio/ogg',
+        default => 'application/octet-stream',
+    };
+
+    $start = 0;
+    $end = $size - 1;
+    $status = 200;
+    $range = (string) ($_SERVER['HTTP_RANGE'] ?? '');
+    if (preg_match('#^bytes=(\d*)-(\d*)$#', $range, $m) === 1 && ($m[1] !== '' || $m[2] !== '')) {
+        if ($m[1] === '') {
+            // Forme suffixe : les N derniers octets.
+            $start = max(0, $size - (int) $m[2]);
+        } else {
+            $start = (int) $m[1];
+            if ($m[2] !== '') {
+                $end = min($end, (int) $m[2]);
+            }
+        }
+        if ($start >= $size || $start > $end) {
+            http_response_code(416);
+            header('Content-Range: bytes */' . $size);
+            exit;
+        }
+        $status = 206;
+    }
+
+    http_response_code($status);
+    header('Content-Type: ' . $mime);
+    header('Accept-Ranges: bytes');
+    header('Content-Length: ' . ($end - $start + 1));
+    if ($status === 206) {
+        header("Content-Range: bytes {$start}-{$end}/{$size}");
+    }
+    $disposition = $attachment ? 'attachment' : 'inline';
+    header('Content-Disposition: ' . $disposition . '; filename="' . str_replace('"', '', $name) . '"');
+
+    $fh = fopen($real, 'rb');
+    if ($fh === false) {
+        exit;
+    }
+    fseek($fh, $start);
+    $remaining = $end - $start + 1;
+    while ($remaining > 0 && !feof($fh)) {
+        $chunk = fread($fh, (int) min(1 << 20, $remaining));
+        if ($chunk === false || $chunk === '') {
+            break;
+        }
+        echo $chunk;
+        $remaining -= \strlen($chunk);
+    }
+    fclose($fh);
+    exit;
+}
+
 $path = resolve_path();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
@@ -128,6 +210,33 @@ if ($path === '/api/status' && $method === 'GET') {
     }
 
     json_response($job);
+}
+
+if ($path === '/api/files' && $method === 'GET') {
+    $files = [];
+    foreach (scandir(DOWNLOADS_DIR) ?: [] as $name) {
+        $full = DOWNLOADS_DIR . DIRECTORY_SEPARATOR . $name;
+        if ($name === '' || $name[0] === '.' || !is_file($full)) {
+            continue;
+        }
+        // Fichiers temporaires de yt-dlp en cours de telechargement.
+        $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+        if (\in_array($ext, ['part', 'ytdl', 'tmp'], true)) {
+            continue;
+        }
+        $files[] = [
+            'name' => $name,
+            'size' => (int) filesize($full),
+            'mtime' => (int) filemtime($full),
+        ];
+    }
+    usort($files, static fn (array $a, array $b): int => $b['mtime'] <=> $a['mtime']);
+
+    json_response(['files' => $files]);
+}
+
+if ($path === '/api/file' && $method === 'GET') {
+    serve_download_file((string) ($_GET['name'] ?? ''), isset($_GET['dl']));
 }
 
 if (str_starts_with($path, '/api/')) {
@@ -228,6 +337,12 @@ function e(string $s): string
                 <p class="hint" id="preview-hint"></p>
             </div>
         </div>
+    </section>
+
+    <section class="card">
+        <h2>Fichiers telecharges</h2>
+        <ul class="files-list" id="files-list"></ul>
+        <p class="hint hidden" id="files-empty">Aucun fichier pour l'instant.</p>
     </section>
 </main>
 <script src="assets/app.js"></script>

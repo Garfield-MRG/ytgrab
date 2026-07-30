@@ -4,6 +4,17 @@ Telechargeur YouTube local et self-hosted. Tu colles une URL, tu choisis le
 format, ca telecharge dans `storage/downloads/` avec la progression en direct.
 Usage strictement personnel, sur ta machine, en local uniquement.
 
+## Fonctionnalites
+
+- Preview de la video au collage de l'URL : titre, miniature, duree,
+  resolutions disponibles
+- Choix du format : meilleure qualite mp4, resolution precise, ou audio seul
+  en mp3
+- Telechargement en process detache : l'interface reste reactive, la
+  progression (pourcentage, vitesse, temps restant) s'affiche en direct
+- Liste des fichiers telecharges, lecture dans le navigateur (streaming avec
+  support des requetes Range) ou telechargement
+
 ## Prerequis
 
 - PHP 8.3 ou plus recent
@@ -74,12 +85,31 @@ l'exterieur de la machine.
 ```
 public/index.php      routeur + vue unique
 public/assets/        CSS et JS vanilla, aucun build
+bin/worker.php        worker de telechargement (process detache)
 src/YtDlp.php         wrapper du binaire yt-dlp
 src/JobStore.php      etat des jobs (1 fichier JSON par job)
 src/UrlValidator.php  validation d'URL + extraction de l'ID video
 storage/downloads/    fichiers telecharges
 storage/jobs/         etat des jobs
 ```
+
+## API
+
+Tous les endpoints passent par `index.php/api/...` (voir Notes techniques).
+
+| Endpoint | Methode | Role |
+|---|---|---|
+| `/api/health` | GET | Etat des binaires yt-dlp et ffmpeg |
+| `/api/metadata` | POST `{url}` | Preview : titre, miniature, duree, resolutions |
+| `/api/download` | POST `{id, format}` | Lance un job detache, repond 202 avec `job_id` |
+| `/api/status?id=X` | GET | Etat du job : statut, progression, vitesse, ETA |
+| `/api/files` | GET | Liste des fichiers telecharges |
+| `/api/file?name=X` | GET | Streaming d'un fichier (`&dl=1` pour forcer le telechargement) |
+
+Le front poll `/api/status` toutes les 500 ms pendant un telechargement.
+
+Les formats acceptes par `/api/download` : `best` (meilleure qualite mp4),
+une hauteur en pixels (`1080`, `720`, ...), ou `mp3`.
 
 ## Notes techniques
 
@@ -89,3 +119,14 @@ storage/jobs/         etat des jobs
   video avec une regex stricte puis on reconstruit une URL canonique.
 - Les appels API passent par `index.php/api/...` car le serveur integre de
   PHP ne reecrit pas les URLs.
+- Le telechargement tourne dans `bin/worker.php`, lance en process detache
+  (`start /b` sous Windows, `sh -c '... &'` sous POSIX) : il survit a la fin
+  de la requete HTTP et ecrit sa progression dans le JSON du job, que
+  `/api/status` se contente de relire.
+- Les noms de fichiers viennent du template yt-dlp
+  `%(title)s [%(id)s].%(ext)s` avec `--restrict-filenames`, et tout chemin
+  est verifie par `realpath()` avant d'etre servi ou accepte (protection
+  path traversal).
+- Retelechargez la meme video dans une autre qualite et yt-dlp verra le
+  fichier existant (meme nom) et ne retelechargera pas : supprimez d'abord
+  le fichier si vous voulez changer de qualite.
