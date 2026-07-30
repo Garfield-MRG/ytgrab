@@ -251,6 +251,12 @@ select:focus {
     font-size: 0.85rem;
 }
 
+.folder-hint {
+    margin-top: -0.5rem;
+    margin-bottom: 0.75rem;
+    word-break: break-all;
+}
+
 .files-list {
     list-style: none;
 }

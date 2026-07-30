@@ -184,6 +184,17 @@ final class YtDlp
     }
 
     /**
+     * Vrai si le nom de fichier vient bien de ytgrab : le template de sortie
+     * impose un suffixe [id video]. Le dossier de telechargement etant le
+     * dossier Telechargements de l'utilisateur, ce filtre garantit qu'on ne
+     * liste ni ne sert jamais ses fichiers personnels.
+     */
+    public static function isManagedFile(string $name): bool
+    {
+        return preg_match('#\[[A-Za-z0-9_-]{11}\]\.[A-Za-z0-9]{2,5}$#', $name) === 1;
+    }
+
+    /**
      * Vrai si le format demande est accepte : best, mp3, ou une hauteur en pixels.
      */
     public static function isValidFormat(string $format): bool

@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
+use App\Config;
 use App\JobStore;
 use App\UrlValidator;
 use App\YtDlp;
 
-const BASE_DIR = __DIR__ . '/..';
-const DOWNLOADS_DIR = BASE_DIR . '/storage/downloads';
-const JOBS_DIR = BASE_DIR . '/storage/jobs';
+define('BASE_DIR', Config::baseDir());
+define('DOWNLOADS_DIR', Config::downloadsDir());
+define('JOBS_DIR', Config::jobsDir());
 
 foreach ([DOWNLOADS_DIR, JOBS_DIR] as $dir) {
     if (!is_dir($dir)) {
@@ -59,6 +60,13 @@ function serve_download_file(string $name, bool $attachment): never
     // chemin, pas de fichier cache. Puis realpath doit rester dans le
     // dossier de telechargements.
     if ($name === '' || $name[0] === '.' || preg_match('#[/\\\\]#', $name) === 1) {
+        http_response_code(404);
+        exit;
+    }
+    // On ne sert que les fichiers produits par ytgrab (suffixe [id video]) :
+    // le dossier est le Telechargements de l'utilisateur, ses fichiers
+    // personnels ne doivent pas etre accessibles.
+    if (!YtDlp::isManagedFile($name)) {
         http_response_code(404);
         exit;
     }
@@ -224,6 +232,10 @@ if ($path === '/api/files' && $method === 'GET') {
         if (\in_array($ext, ['part', 'ytdl', 'tmp'], true)) {
             continue;
         }
+        // Seuls les fichiers produits par ytgrab, jamais le reste du dossier.
+        if (!YtDlp::isManagedFile($name)) {
+            continue;
+        }
         $files[] = [
             'name' => $name,
             'size' => (int) filesize($full),
@@ -341,6 +353,7 @@ function e(string $s): string
 
     <section class="card">
         <h2>Fichiers telecharges</h2>
+        <p class="hint folder-hint">Dossier : <?= e(DOWNLOADS_DIR) ?></p>
         <ul class="files-list" id="files-list"></ul>
         <p class="hint hidden" id="files-empty">Aucun fichier pour l'instant.</p>
     </section>

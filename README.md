@@ -1,8 +1,9 @@
 # ytgrab
 
 Telechargeur YouTube local et self-hosted. Tu colles une URL, tu choisis le
-format, ca telecharge dans `storage/downloads/` avec la progression en direct.
-Usage strictement personnel, sur ta machine, en local uniquement.
+format, ca telecharge directement dans ton dossier Telechargements avec la
+progression en direct. Usage strictement personnel, sur ta machine, en local
+uniquement.
 
 ## Fonctionnalites
 
@@ -86,12 +87,25 @@ l'exterieur de la machine.
 public/index.php      routeur + vue unique
 public/assets/        CSS et JS vanilla, aucun build
 bin/worker.php        worker de telechargement (process detache)
+src/Config.php        chemins partages entre routeur et worker
 src/YtDlp.php         wrapper du binaire yt-dlp
 src/JobStore.php      etat des jobs (1 fichier JSON par job)
 src/UrlValidator.php  validation d'URL + extraction de l'ID video
-storage/downloads/    fichiers telecharges
+storage/downloads/    dossier de secours si Telechargements introuvable
 storage/jobs/         etat des jobs
 ```
+
+## Ou vont les fichiers
+
+Les fichiers atterrissent dans le dossier Telechargements de ta session
+(`%USERPROFILE%\Downloads` sous Windows, `~/Downloads` sinon), avec
+`storage/downloads/` en secours si ce dossier n'existe pas. Le dossier utilise
+est affiche dans l'interface.
+
+Comme ce dossier contient aussi tes fichiers personnels, l'appli ne liste et
+ne sert que les fichiers produits par ytgrab, reconnaissables au suffixe
+`[id video]` impose par le template de nommage. Le reste du dossier n'est
+jamais expose.
 
 ## API
 

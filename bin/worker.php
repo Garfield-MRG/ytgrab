@@ -17,12 +17,12 @@ if (PHP_SAPI !== 'cli') {
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
+use App\Config;
 use App\JobStore;
 use App\YtDlp;
 
-$baseDir = dirname(__DIR__);
-$downloadsDir = $baseDir . '/storage/downloads';
-$jobsDir = $baseDir . '/storage/jobs';
+$downloadsDir = Config::downloadsDir();
+$jobsDir = Config::jobsDir();
 
 $jobId = $argv[1] ?? '';
 if (!JobStore::isValidJobId($jobId)) {
