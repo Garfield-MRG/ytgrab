@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
+use App\JobStore;
 use App\UrlValidator;
 use App\YtDlp;
 
@@ -91,16 +92,42 @@ if ($path === '/api/download' && $method === 'POST') {
         json_response(['error' => 'Format invalide'], 422);
     }
 
-    // Telechargement bloquant (etape 3) : la requete dure le temps du
-    // download, on leve donc la limite d'execution. Passage en process
-    // detache a l'etape 4.
-    set_time_limit(0);
+    $store = new JobStore(JOBS_DIR);
+    $jobId = $store->create([
+        'video_id' => $videoId,
+        'format' => $format,
+        'status' => 'queued',
+        'progress' => null,
+        'speed' => null,
+        'eta' => null,
+        'stage' => null,
+        'file' => null,
+        'size' => null,
+        'error' => null,
+    ]);
 
     try {
-        json_response(YtDlp::download($videoId, $format, DOWNLOADS_DIR));
+        YtDlp::spawnWorker(BASE_DIR . '/bin/worker.php', $jobId);
     } catch (\RuntimeException $e) {
-        json_response(['error' => $e->getMessage()], 502);
+        $store->update($jobId, ['status' => 'error', 'error' => $e->getMessage()]);
+        json_response(['error' => $e->getMessage()], 500);
     }
+
+    json_response(['job_id' => $jobId], 202);
+}
+
+if ($path === '/api/status' && $method === 'GET') {
+    $jobId = (string) ($_GET['id'] ?? '');
+    if (!JobStore::isValidJobId($jobId)) {
+        json_response(['error' => 'ID de job invalide'], 422);
+    }
+
+    $job = (new JobStore(JOBS_DIR))->get($jobId);
+    if ($job === null) {
+        json_response(['error' => 'Job inconnu'], 404);
+    }
+
+    json_response($job);
 }
 
 if (str_starts_with($path, '/api/')) {
@@ -191,6 +218,12 @@ function e(string $s): string
                 <div class="format-row">
                     <select id="format-select"></select>
                     <button type="button" id="download-btn">Telecharger</button>
+                </div>
+                <div class="progress-wrap hidden" id="progress-wrap">
+                    <div class="progress-track">
+                        <div class="progress-bar" id="progress-bar"></div>
+                    </div>
+                    <p class="progress-stats" id="progress-stats"></p>
                 </div>
                 <p class="hint" id="preview-hint"></p>
             </div>

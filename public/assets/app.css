@@ -225,6 +225,32 @@ select:focus {
     border-color: var(--accent);
 }
 
+.progress-wrap {
+    margin-top: 1rem;
+}
+
+.progress-track {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    height: 10px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    background: var(--accent);
+    height: 100%;
+    width: 0;
+    border-radius: 999px;
+    transition: width 0.3s ease;
+}
+
+.progress-stats {
+    margin-top: 0.5rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+
 @media (max-width: 560px) {
     .preview-body {
         flex-direction: column;

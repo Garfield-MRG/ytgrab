@@ -120,6 +120,80 @@ function formatSize(bytes) {
     return Math.round(bytes / 1024) + " Ko";
 }
 
+const progressWrap = document.getElementById("progress-wrap");
+const progressBar = document.getElementById("progress-bar");
+const progressStats = document.getElementById("progress-stats");
+
+function formatSpeed(bytesPerSecond) {
+    if (bytesPerSecond >= 1024 * 1024) {
+        return (bytesPerSecond / (1024 * 1024)).toFixed(1) + " Mo/s";
+    }
+    return Math.round(bytesPerSecond / 1024) + " Ko/s";
+}
+
+function formatEta(seconds) {
+    const s = Math.round(seconds);
+    const m = Math.floor(s / 60);
+    return m > 0 ? m + " min " + String(s % 60).padStart(2, "0") + " s" : s + " s";
+}
+
+function renderProgress(job) {
+    const percent = job.progress == null ? 0 : job.progress;
+    progressBar.style.width = percent + "%";
+
+    if (job.status === "queued") {
+        progressStats.textContent = "En attente du demarrage...";
+        return;
+    }
+    if (job.stage === "processing") {
+        progressStats.textContent = "Conversion / fusion en cours...";
+        return;
+    }
+
+    const parts = [percent.toFixed(1) + " %"];
+    if (job.speed != null) {
+        parts.push(formatSpeed(job.speed));
+    }
+    if (job.eta != null) {
+        parts.push("reste " + formatEta(job.eta));
+    }
+    progressStats.textContent = parts.join("  ·  ");
+}
+
+function endDownloadUi() {
+    downloadBtn.disabled = false;
+    downloadBtn.textContent = "Telecharger";
+}
+
+function pollJob(jobId) {
+    const timer = setInterval(async () => {
+        let job;
+        try {
+            job = await api("status?id=" + encodeURIComponent(jobId));
+        } catch (err) {
+            clearInterval(timer);
+            endDownloadUi();
+            previewHint.textContent = "Echec du suivi : " + err.message;
+            return;
+        }
+
+        renderProgress(job);
+
+        if (job.status === "finished") {
+            clearInterval(timer);
+            endDownloadUi();
+            progressBar.style.width = "100%";
+            progressStats.textContent = "";
+            previewHint.textContent = "Termine : " + job.file + " (" + formatSize(job.size) + ")";
+        } else if (job.status === "error") {
+            clearInterval(timer);
+            endDownloadUi();
+            progressWrap.classList.add("hidden");
+            previewHint.textContent = "Echec : " + job.error;
+        }
+    }, 500);
+}
+
 downloadBtn.addEventListener("click", async () => {
     if (!currentVideo) {
         return;
@@ -127,7 +201,10 @@ downloadBtn.addEventListener("click", async () => {
 
     downloadBtn.disabled = true;
     downloadBtn.textContent = "Telechargement...";
-    previewHint.textContent = "Telechargement en cours, la requete peut durer un moment (progression en direct a l'etape 4).";
+    previewHint.textContent = "";
+    progressBar.style.width = "0%";
+    progressStats.textContent = "Lancement...";
+    progressWrap.classList.remove("hidden");
 
     try {
         const result = await api("download", {
@@ -138,11 +215,10 @@ downloadBtn.addEventListener("click", async () => {
                 format: formatSelect.value,
             }),
         });
-        previewHint.textContent = "Termine : " + result.file + " (" + formatSize(result.size) + ")";
+        pollJob(result.job_id);
     } catch (err) {
+        endDownloadUi();
+        progressWrap.classList.add("hidden");
         previewHint.textContent = "Echec : " + err.message;
-    } finally {
-        downloadBtn.disabled = false;
-        downloadBtn.textContent = "Telecharger";
     }
 });

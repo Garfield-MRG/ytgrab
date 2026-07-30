@@ -216,6 +216,9 @@ final class YtDlp
             '--no-simulate',
             '--progress',
             '--print', 'after_move:filepath',
+            // Une ligne PROGRESS| parsable par le worker a chaque mise a jour.
+            '--progress-template',
+            'download:PROGRESS|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s|%(progress.status)s',
             '-o', $outDir . DIRECTORY_SEPARATOR . '%(title)s [%(id)s].%(ext)s',
         ];
 
@@ -240,27 +243,43 @@ final class YtDlp
     }
 
     /**
-     * Telechargement bloquant : attend la fin de yt-dlp et retourne le fichier.
+     * Lance le worker de telechargement en process detache : la requete HTTP
+     * rend la main tout de suite, le worker survit a la fin de la requete.
      *
-     * @return array{file:string, size:int}
+     * Le job id est genere par le serveur (16 caracteres hexadecimaux) et les
+     * chemins viennent de la configuration : aucune entree utilisateur ici.
      */
-    public static function download(string $videoId, string $format, string $outDir): array
+    public static function spawnWorker(string $workerScript, string $jobId): void
     {
-        $run = self::runCapture(self::downloadArgs($videoId, $format, $outDir), 1800);
-
-        if ($run['exit'] !== 0) {
-            throw new \RuntimeException(self::shortError($run['stderr']));
+        if (!JobStore::isValidJobId($jobId)) {
+            throw new \InvalidArgumentException('ID de job invalide');
         }
 
-        $filePath = self::extractFinalPath($run['stdout'], $outDir);
-        if ($filePath === null) {
-            throw new \RuntimeException('Telechargement termine mais fichier introuvable');
+        if (self::isWindows()) {
+            // `start /b` rend la main immediatement : proc_close n'attend que
+            // cmd, pas le worker. En tableau d'arguments, PHP quote `start` et
+            // cmd ne reconnait plus sa commande interne, donc cette couche de
+            // detachement passe par une chaine. C'est la seule du projet, et
+            // elle ne contient aucune entree utilisateur : le job id est
+            // valide ([a-f0-9]{16}) et les chemins viennent de la config.
+            // Le "" est le titre de fenetre que start attend quand un
+            // argument est quote.
+            $quote = static fn (string $p): string => '"' . str_replace('"', '', $p) . '"';
+            $cmd = 'start /b "" ' . $quote(PHP_BINARY) . ' ' . $quote($workerScript) . ' ' . $jobId;
+            $options = []; // bypass_shell absent : la chaine passe par cmd /c
+        } else {
+            // sh met le worker en arriere-plan puis sort tout de suite. La
+            // chaine -c est un litteral fige, les valeurs passent en arguments
+            // positionnels : rien n'est interpole dans le shell.
+            $cmd = ['sh', '-c', 'exec "$0" "$1" "$2" < /dev/null > /dev/null 2>&1 &', PHP_BINARY, $workerScript, $jobId];
+            $options = ['bypass_shell' => true];
         }
 
-        return [
-            'file' => basename($filePath),
-            'size' => (int) filesize($filePath),
-        ];
+        $proc = proc_open($cmd, [], $pipes, null, null, $options);
+        if (!\is_resource($proc)) {
+            throw new \RuntimeException('Impossible de lancer le worker');
+        }
+        proc_close($proc);
     }
 
     /**
@@ -292,7 +311,7 @@ final class YtDlp
     /**
      * Extrait un message d'erreur court et utile du stderr de yt-dlp.
      */
-    private static function shortError(string $stderr): string
+    public static function shortError(string $stderr): string
     {
         $lines = array_values(array_filter(array_map('trim', explode("\n", $stderr))));
         foreach (array_reverse($lines) as $line) {
