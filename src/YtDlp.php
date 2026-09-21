@@ -184,6 +184,67 @@ final class YtDlp
     }
 
     /**
+     * Liste les videos d'une playlist via `yt-dlp -J --flat-playlist`, sans
+     * resoudre chaque video (rapide meme sur une grosse playlist). La
+     * limite est appliquee par yt-dlp lui-meme (--playlist-end).
+     *
+     * @return array{id:string, title:string, channel:string, thumbnail:string, total:int, limit:int, entries:list<array{id:string, title:string, duration:int}>}
+     */
+    public static function fetchPlaylist(string $playlistId): array
+    {
+        $bin = self::findBinary('yt-dlp');
+        if ($bin === null) {
+            throw new \RuntimeException('yt-dlp est introuvable dans le PATH');
+        }
+
+        $url = UrlValidator::canonicalPlaylistUrl($playlistId);
+        $run = self::runCapture([
+            $bin, '-J', '--flat-playlist', '--playlist-end', (string) Config::PLAYLIST_LIMIT, $url,
+        ], 90);
+
+        if ($run['exit'] !== 0) {
+            throw new \RuntimeException(self::shortError($run['stderr']));
+        }
+
+        $data = json_decode($run['stdout'], true);
+        if (!\is_array($data) || ($data['_type'] ?? '') !== 'playlist') {
+            throw new \RuntimeException('Reponse illisible de yt-dlp');
+        }
+
+        $entries = [];
+        foreach ($data['entries'] ?? [] as $entry) {
+            $id = (string) ($entry['id'] ?? '');
+            $title = (string) ($entry['title'] ?? '');
+            // Videos privees ou supprimees : yt-dlp les liste avec un titre
+            // entre crochets et rien a telecharger.
+            if (!UrlValidator::isValidId($id) || preg_match('#^\[(Private|Deleted) video\]$#', $title) === 1) {
+                continue;
+            }
+            $entries[] = [
+                'id' => $id,
+                'title' => $title !== '' ? $title : $id,
+                'duration' => (int) ($entry['duration'] ?? 0),
+            ];
+            if (\count($entries) >= Config::PLAYLIST_LIMIT) {
+                break;
+            }
+        }
+
+        $thumbs = $data['thumbnails'] ?? [];
+        $thumbnail = \is_array($thumbs) && $thumbs !== [] ? (string) (end($thumbs)['url'] ?? '') : '';
+
+        return [
+            'id' => $playlistId,
+            'title' => (string) ($data['title'] ?? ''),
+            'channel' => (string) ($data['channel'] ?? $data['uploader'] ?? ''),
+            'thumbnail' => $thumbnail,
+            'total' => (int) ($data['playlist_count'] ?? \count($entries)),
+            'limit' => Config::PLAYLIST_LIMIT,
+            'entries' => $entries,
+        ];
+    }
+
+    /**
      * Vrai si le nom de fichier vient bien de ytgrab : le template de sortie
      * impose un suffixe [id video]. Le dossier de telechargement etant le
      * dossier Telechargements de l'utilisateur, ce filtre garantit qu'on ne
@@ -335,8 +396,8 @@ final class YtDlp
             if (!str_contains($name, $marker)) {
                 continue;
             }
-            $isTemp = preg_match('#\.(part|ytdl|temp)$#i', $name) === 1
-                || preg_match('#\]\.f\d+\.[A-Za-z0-9]{2,5}$#', $name) === 1;
+            $isTemp = preg_match('#\.(part|ytdl)$#i', $name) === 1
+                || preg_match('#\]\.(f\d+|temp)\.[A-Za-z0-9]{2,5}$#', $name) === 1;
             if ($isTemp) {
                 @unlink($outDir . DIRECTORY_SEPARATOR . $name);
             }

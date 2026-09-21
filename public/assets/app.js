@@ -117,14 +117,46 @@ function buildFormatOptions(heights) {
     add("mp3", "Audio seul (mp3)");
 }
 
+const playlistList = document.getElementById("playlist-list");
+
 function renderPreview(meta) {
     currentVideo = meta;
     previewThumb.src = meta.thumbnail;
     previewTitle.textContent = meta.title;
     previewChannel.textContent = meta.channel;
-    previewDuration.textContent = formatDuration(meta.duration);
-    buildFormatOptions(meta.heights);
     previewHint.textContent = "";
+    playlistList.innerHTML = "";
+    playlistList.classList.toggle("hidden", meta.type !== "playlist");
+
+    if (meta.type === "playlist") {
+        // Pour une playlist on ne connait pas les resolutions de chaque
+        // video : on propose des paliers classiques, yt-dlp prend ce qui
+        // existe en dessous.
+        buildFormatOptions([1080, 720, 480, 360]);
+        const n = meta.entries.length;
+        previewDuration.textContent = n + (n > 1 ? " videos" : " video")
+            + (meta.total > n ? " sur " + meta.total + " (limite : " + meta.limit + ")" : "");
+        downloadBtn.textContent = "Tout ajouter a la file";
+
+        for (const entry of meta.entries) {
+            const li = document.createElement("li");
+            const title = document.createElement("span");
+            title.className = "playlist-title";
+            title.textContent = entry.title;
+            title.title = entry.title;
+            const duration = document.createElement("span");
+            duration.className = "playlist-duration";
+            duration.textContent = entry.duration > 0 ? formatDuration(entry.duration) : "";
+            li.append(title, duration);
+            playlistList.appendChild(li);
+        }
+    } else {
+        buildFormatOptions(meta.heights);
+        previewDuration.textContent = formatDuration(meta.duration);
+        downloadBtn.textContent = "Ajouter a la file";
+    }
+
+    downloadBtn.disabled = meta.type === "playlist" && meta.entries.length === 0;
     preview.classList.remove("hidden");
 }
 
@@ -159,14 +191,20 @@ downloadBtn.addEventListener("click", async () => {
     previewHint.textContent = "";
 
     try {
-        const result = await postJson("download", {
-            id: currentVideo.id,
-            title: currentVideo.title,
-            format: formatSelect.value,
-        });
-        previewHint.textContent = result.jobs[0].duplicate
-            ? "Deja dans la file d'attente."
-            : "Ajoute a la file d'attente.";
+        const items = currentVideo.type === "playlist"
+            ? currentVideo.entries.map((e) => ({ id: e.id, title: e.title }))
+            : [{ id: currentVideo.id, title: currentVideo.title }];
+        const result = await postJson("download", { items, format: formatSelect.value });
+        const added = result.jobs.filter((j) => !j.duplicate).length;
+        const dupes = result.jobs.length - added;
+        if (items.length === 1) {
+            previewHint.textContent = dupes > 0 ? "Deja dans la file d'attente." : "Ajoute a la file d'attente.";
+        } else if (added === 0) {
+            previewHint.textContent = "Ces videos sont deja toutes dans la file d'attente.";
+        } else {
+            previewHint.textContent = added + (added > 1 ? " videos ajoutees" : " video ajoutee") + " a la file d'attente"
+                + (dupes > 0 ? ", " + dupes + " deja presente" + (dupes > 1 ? "s" : "") : "") + ".";
+        }
         await refreshJobs();
     } catch (err) {
         previewHint.textContent = "Echec : " + err.message;

@@ -225,6 +225,34 @@ select:focus {
     border-color: var(--accent);
 }
 
+.playlist-list {
+    margin-top: 1rem;
+    padding-left: 1.6rem;
+    max-height: 16rem;
+    overflow-y: auto;
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+
+.playlist-list li {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.2rem 0;
+}
+
+.playlist-title {
+    flex: 1;
+    min-width: 0;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.playlist-duration {
+    flex-shrink: 0;
+}
+
 .card-head {
     display: flex;
     align-items: center;

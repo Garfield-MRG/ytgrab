@@ -158,14 +158,18 @@ if ($path === '/api/metadata' && $method === 'POST') {
     $url = \is_array($body) ? (string) ($body['url'] ?? '') : '';
 
     $videoId = UrlValidator::extractId($url);
-    if ($videoId === null) {
+    $playlistId = $videoId === null ? UrlValidator::extractPlaylistId($url) : null;
+    if ($videoId === null && $playlistId === null) {
         json_response([
-            'error' => 'URL non reconnue. Formats acceptes : youtube.com/watch?v=..., youtu.be/..., youtube.com/shorts/...',
+            'error' => 'URL non reconnue. Formats acceptes : youtube.com/watch?v=..., youtu.be/..., youtube.com/shorts/..., youtube.com/playlist?list=...',
         ], 422);
     }
 
     try {
-        json_response(YtDlp::fetchMetadata($videoId));
+        if ($videoId !== null) {
+            json_response(['type' => 'video'] + YtDlp::fetchMetadata($videoId));
+        }
+        json_response(['type' => 'playlist'] + YtDlp::fetchPlaylist((string) $playlistId));
     } catch (\RuntimeException $e) {
         json_response(['error' => $e->getMessage()], 502);
     }
@@ -407,6 +411,7 @@ function e(string $s): string
                 <p class="hint" id="preview-hint"></p>
             </div>
         </div>
+        <ol class="playlist-list hidden" id="playlist-list"></ol>
     </section>
 
     <section class="card" id="jobs">

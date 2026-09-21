@@ -51,6 +51,39 @@ final class UrlValidator
     }
 
     /**
+     * Un ID de playlist : meme alphabet que les videos, longueur variable
+     * (PL + 32 caracteres le plus souvent, mais aussi des formes courtes).
+     */
+    private const PLAYLIST_ID_PATTERN = '[A-Za-z0-9_-]{2,128}';
+
+    /**
+     * Extrait l'ID d'une URL de playlist (youtube.com/playlist?list=ID).
+     * Une URL watch?v=...&list=... reste une video : c'est extractId() qui
+     * la traite, et la playlist qui l'entoure est ignoree.
+     */
+    public static function extractPlaylistId(string $input): ?string
+    {
+        $input = trim($input);
+        $pattern = '#^https?://(?:www\.|m\.)?youtube\.com/playlist\?(?:[^\s\#]*&)?list=(' . self::PLAYLIST_ID_PATTERN . ')(?:[&\#]|$)#';
+
+        return preg_match($pattern, $input, $m) === 1 ? $m[1] : null;
+    }
+
+    public static function isValidPlaylistId(string $id): bool
+    {
+        return preg_match('#^' . self::PLAYLIST_ID_PATTERN . '$#', $id) === 1;
+    }
+
+    public static function canonicalPlaylistUrl(string $id): string
+    {
+        if (!self::isValidPlaylistId($id)) {
+            throw new \InvalidArgumentException('ID de playlist invalide');
+        }
+
+        return 'https://www.youtube.com/playlist?list=' . $id;
+    }
+
+    /**
      * Reconstruit une URL canonique a partir d'un ID valide.
      * C'est cette URL, et jamais l'entree utilisateur, qui est passee a yt-dlp.
      */
