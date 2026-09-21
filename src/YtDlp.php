@@ -420,6 +420,40 @@ final class YtDlp
     }
 
     /**
+     * Met yt-dlp a jour avec son propre mecanisme (`yt-dlp -U`). Marche avec
+     * le binaire officiel (winget, brew, telechargement direct) ; une
+     * installation pip/pipx repond qu'il faut passer par pip, et on affiche
+     * ce message tel quel.
+     *
+     * @return array{ok:bool, output:string, version:?string}
+     */
+    public static function selfUpdate(): array
+    {
+        $bin = self::findBinary('yt-dlp');
+        if ($bin === null) {
+            throw new \RuntimeException('yt-dlp est introuvable dans le PATH');
+        }
+
+        $run = self::runCapture([$bin, '-U'], 180);
+        $output = trim($run['stdout'] . "\n" . $run['stderr']);
+        // On ne garde que les dernieres lignes utiles.
+        $lines = array_values(array_filter(array_map('trim', explode("\n", $output))));
+        $output = implode("\n", \array_slice($lines, -6));
+
+        $version = null;
+        $check = self::runCapture([$bin, '--version'], 15);
+        if ($check['exit'] === 0) {
+            $version = trim((string) strtok($check['stdout'], "\r\n"));
+        }
+
+        return [
+            'ok' => $run['exit'] === 0,
+            'output' => $output !== '' ? $output : 'yt-dlp n\'a rien repondu',
+            'version' => $version !== '' ? $version : null,
+        ];
+    }
+
+    /**
      * Commande d'installation a suggerer quand un binaire manque.
      */
     public static function installHint(): string

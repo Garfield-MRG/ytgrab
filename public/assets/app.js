@@ -454,3 +454,34 @@ api("jobs").then((data) => {
     refreshJobs();
     loadFiles();
 });
+
+/* ------------------------------------------------------------------ */
+/* Mise a jour de yt-dlp                                               */
+/* ------------------------------------------------------------------ */
+
+const updateBtn = document.getElementById("update-btn");
+const updateOutput = document.getElementById("update-output");
+
+if (updateBtn) {
+    updateBtn.addEventListener("click", async () => {
+        updateBtn.disabled = true;
+        updateBtn.textContent = "Mise a jour...";
+        updateOutput.classList.add("hidden");
+
+        try {
+            const result = await postJson("update-ytdlp", {});
+            updateOutput.textContent = result.output;
+            updateOutput.classList.toggle("is-error", !result.ok);
+            if (result.version) {
+                document.getElementById("version-yt-dlp").textContent = result.version;
+            }
+        } catch (err) {
+            updateOutput.textContent = err.message;
+            updateOutput.classList.add("is-error");
+        } finally {
+            updateOutput.classList.remove("hidden");
+            updateBtn.disabled = false;
+            updateBtn.textContent = "Mettre a jour";
+        }
+    });
+}

@@ -219,6 +219,22 @@ if ($path === '/api/download' && $method === 'POST') {
     json_response(['jobs' => $jobs, 'job_id' => $jobs[0]['job_id']], 202);
 }
 
+if ($path === '/api/update-ytdlp' && $method === 'POST') {
+    // Remplacer l'executable pendant qu'un telechargement tourne : non.
+    $store = new JobStore(JOBS_DIR);
+    foreach ($store->all() as $job) {
+        if (JobStore::isActive($job)) {
+            json_response(['error' => 'Attends la fin des telechargements en cours (ou annule-les) avant de mettre a jour'], 409);
+        }
+    }
+
+    try {
+        json_response(YtDlp::selfUpdate());
+    } catch (\RuntimeException $e) {
+        json_response(['error' => $e->getMessage()], 500);
+    }
+}
+
 if ($path === '/api/jobs' && $method === 'GET') {
     $store = new JobStore(JOBS_DIR);
     $store->prune(Config::JOB_RETENTION);
@@ -373,13 +389,17 @@ function e(string $s): string
                 <span class="dot"></span>
                 <span class="name"><?= e($name) ?></span>
                 <?php if ($info['found']): ?>
-                <span class="detail"><?= e((string) $info['version']) ?></span>
+                <span class="detail" id="version-<?= e($name) ?>"><?= e((string) $info['version']) ?></span>
                 <?php else: ?>
                 <span class="detail">introuvable dans le PATH</span>
+                <?php endif; ?>
+                <?php if ($name === 'yt-dlp' && $info['found']): ?>
+                <button type="button" class="small-btn push-right" id="update-btn">Mettre a jour</button>
                 <?php endif; ?>
             </li>
             <?php endforeach; ?>
         </ul>
+        <pre class="update-output hidden" id="update-output"></pre>
     </section>
 
     <section class="card">

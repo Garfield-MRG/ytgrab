@@ -434,3 +434,25 @@ select:focus {
         max-width: none;
     }
 }
+
+.push-right {
+    margin-left: auto;
+    align-self: center;
+}
+
+.update-output {
+    margin-top: 0.75rem;
+    padding: 0.6rem 0.8rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--muted);
+    font-size: 0.78rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.update-output.is-error {
+    color: var(--ko);
+    border-color: rgba(229, 72, 77, 0.45);
+}
