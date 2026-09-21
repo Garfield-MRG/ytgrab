@@ -5,10 +5,20 @@ declare(strict_types=1);
 namespace App;
 
 /**
- * Chemins de l'application, partages entre le routeur et le worker.
+ * Chemins et reglages de l'application, partages entre le routeur et le
+ * worker.
  */
 final class Config
 {
+    /** Nombre de telechargements simultanes. Au-dela, les jobs attendent. */
+    public const MAX_CONCURRENT = 1;
+
+    /** Nombre maximum de videos prises dans une playlist. */
+    public const PLAYLIST_LIMIT = 50;
+
+    /** Les jobs termines plus vieux que ca (secondes) sont oublies. */
+    public const JOB_RETENTION = 86400;
+
     public static function baseDir(): string
     {
         return \dirname(__DIR__);
@@ -34,5 +44,10 @@ final class Config
     public static function jobsDir(): string
     {
         return self::baseDir() . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'jobs';
+    }
+
+    public static function workerScript(): string
+    {
+        return self::baseDir() . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'worker.php';
     }
 }

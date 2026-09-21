@@ -6,6 +6,7 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 
 use App\Config;
 use App\JobStore;
+use App\Scheduler;
 use App\UrlValidator;
 use App\YtDlp;
 
@@ -170,40 +171,103 @@ if ($path === '/api/metadata' && $method === 'POST') {
     }
 }
 
+/**
+ * Titre affiche dans la file : vient du client (il l'a recu de /api/metadata),
+ * ne sert qu'a l'affichage, on le nettoie quand meme.
+ */
+function clean_title(mixed $title): string
+{
+    $title = \is_string($title) ? $title : '';
+    $title = preg_replace('/[\x00-\x1F\x7F]/u', '', $title) ?? '';
+
+    return mb_substr(trim($title), 0, 200);
+}
+
 if ($path === '/api/download' && $method === 'POST') {
     $body = json_decode(file_get_contents('php://input') ?: '', true);
-    $videoId = \is_array($body) ? (string) ($body['id'] ?? '') : '';
-    $format = \is_array($body) ? (string) ($body['format'] ?? '') : '';
+    $body = \is_array($body) ? $body : [];
+    $format = (string) ($body['format'] ?? '');
 
-    if (!UrlValidator::isValidId($videoId)) {
-        json_response(['error' => 'ID video invalide'], 422);
-    }
     if (!YtDlp::isValidFormat($format)) {
         json_response(['error' => 'Format invalide'], 422);
     }
 
-    $store = new JobStore(JOBS_DIR);
-    $jobId = $store->create([
-        'video_id' => $videoId,
-        'format' => $format,
-        'status' => 'queued',
-        'progress' => null,
-        'speed' => null,
-        'eta' => null,
-        'stage' => null,
-        'file' => null,
-        'size' => null,
-        'error' => null,
-    ]);
+    // Une video ({id, title}) ou plusieurs ({items: [{id, title}, ...]}).
+    $items = isset($body['items']) && \is_array($body['items'])
+        ? $body['items']
+        : [['id' => $body['id'] ?? '', 'title' => $body['title'] ?? '']];
 
-    try {
-        YtDlp::spawnWorker(BASE_DIR . '/bin/worker.php', $jobId);
-    } catch (\RuntimeException $e) {
-        $store->update($jobId, ['status' => 'error', 'error' => $e->getMessage()]);
-        json_response(['error' => $e->getMessage()], 500);
+    if ($items === [] || \count($items) > Config::PLAYLIST_LIMIT) {
+        json_response(['error' => 'Entre 1 et ' . Config::PLAYLIST_LIMIT . ' videos par requete'], 422);
+    }
+    foreach ($items as $item) {
+        if (!\is_array($item) || !UrlValidator::isValidId((string) ($item['id'] ?? ''))) {
+            json_response(['error' => 'ID video invalide'], 422);
+        }
     }
 
-    json_response(['job_id' => $jobId], 202);
+    $scheduler = new Scheduler(new JobStore(JOBS_DIR));
+    $jobs = [];
+    foreach ($items as $item) {
+        $jobs[] = $scheduler->enqueue((string) $item['id'], $format, clean_title($item['title'] ?? ''));
+    }
+
+    json_response(['jobs' => $jobs, 'job_id' => $jobs[0]['job_id']], 202);
+}
+
+if ($path === '/api/jobs' && $method === 'GET') {
+    $store = new JobStore(JOBS_DIR);
+    $store->prune(Config::JOB_RETENTION);
+    // dispatch() repere aussi les workers morts : la liste reste juste
+    // meme si un worker a ete tue sans passer par l'appli.
+    (new Scheduler($store))->dispatch();
+
+    json_response(['jobs' => array_reverse($store->all())]);
+}
+
+if ($path === '/api/cancel' && $method === 'POST') {
+    $body = json_decode(file_get_contents('php://input') ?: '', true);
+    $jobId = \is_array($body) ? (string) ($body['id'] ?? '') : '';
+    if (!JobStore::isValidJobId($jobId)) {
+        json_response(['error' => 'ID de job invalide'], 422);
+    }
+
+    $job = (new Scheduler(new JobStore(JOBS_DIR)))->cancel($jobId);
+    if ($job === null) {
+        json_response(['error' => 'Job inconnu'], 404);
+    }
+
+    json_response($job);
+}
+
+if ($path === '/api/jobs/remove' && $method === 'POST') {
+    $body = json_decode(file_get_contents('php://input') ?: '', true);
+    $jobId = \is_array($body) ? (string) ($body['id'] ?? '') : '';
+    $store = new JobStore(JOBS_DIR);
+
+    if ($jobId === 'all') {
+        // Retire tous les jobs termines d'un coup.
+        foreach ($store->all() as $job) {
+            if (!JobStore::isActive($job)) {
+                $store->delete((string) $job['job_id']);
+            }
+        }
+        json_response(['ok' => true]);
+    }
+
+    if (!JobStore::isValidJobId($jobId)) {
+        json_response(['error' => 'ID de job invalide'], 422);
+    }
+    $job = $store->get($jobId);
+    if ($job === null) {
+        json_response(['error' => 'Job inconnu'], 404);
+    }
+    if (JobStore::isActive($job)) {
+        json_response(['error' => 'Annule le job avant de le retirer'], 409);
+    }
+    $store->delete($jobId);
+
+    json_response(['ok' => true]);
 }
 
 if ($path === '/api/status' && $method === 'GET') {
@@ -338,17 +402,20 @@ function e(string $s): string
                 </p>
                 <div class="format-row">
                     <select id="format-select"></select>
-                    <button type="button" id="download-btn">Telecharger</button>
-                </div>
-                <div class="progress-wrap hidden" id="progress-wrap">
-                    <div class="progress-track">
-                        <div class="progress-bar" id="progress-bar"></div>
-                    </div>
-                    <p class="progress-stats" id="progress-stats"></p>
+                    <button type="button" id="download-btn">Ajouter a la file</button>
                 </div>
                 <p class="hint" id="preview-hint"></p>
             </div>
         </div>
+    </section>
+
+    <section class="card" id="jobs">
+        <div class="card-head">
+            <h2>File d'attente</h2>
+            <button type="button" class="ghost-btn hidden" id="jobs-clear">Retirer les termines</button>
+        </div>
+        <ul class="jobs-list" id="jobs-list"></ul>
+        <p class="hint" id="jobs-empty">Aucun telechargement en cours.</p>
     </section>
 
     <section class="card">

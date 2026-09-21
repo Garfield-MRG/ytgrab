@@ -20,6 +20,14 @@ async function api(path, options = {}) {
     return data;
 }
 
+function postJson(path, body) {
+    return api(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    });
+}
+
 function formatDuration(totalSeconds) {
     const s = Math.max(0, Math.floor(totalSeconds));
     const h = Math.floor(s / 3600);
@@ -28,6 +36,43 @@ function formatDuration(totalSeconds) {
     const pad = (n) => String(n).padStart(2, "0");
     return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
 }
+
+function formatSize(bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+        return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " Go";
+    }
+    if (bytes >= 1024 * 1024) {
+        return (bytes / (1024 * 1024)).toFixed(1) + " Mo";
+    }
+    return Math.round(bytes / 1024) + " Ko";
+}
+
+function formatSpeed(bytesPerSecond) {
+    if (bytesPerSecond >= 1024 * 1024) {
+        return (bytesPerSecond / (1024 * 1024)).toFixed(1) + " Mo/s";
+    }
+    return Math.round(bytesPerSecond / 1024) + " Ko/s";
+}
+
+function formatEta(seconds) {
+    const s = Math.round(seconds);
+    const m = Math.floor(s / 60);
+    return m > 0 ? m + " min " + String(s % 60).padStart(2, "0") + " s" : s + " s";
+}
+
+function formatLabel(format) {
+    if (format === "best") {
+        return "meilleure qualite";
+    }
+    if (format === "mp3") {
+        return "mp3";
+    }
+    return format + "p";
+}
+
+/* ------------------------------------------------------------------ */
+/* Analyse d'une URL et preview                                        */
+/* ------------------------------------------------------------------ */
 
 const form = document.getElementById("url-form");
 const urlInput = document.getElementById("url-input");
@@ -96,12 +141,7 @@ form.addEventListener("submit", async (event) => {
     analyzeBtn.textContent = "Analyse...";
 
     try {
-        const meta = await api("metadata", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url }),
-        });
-        renderPreview(meta);
+        renderPreview(await postJson("metadata", { url }));
     } catch (err) {
         showError(err.message);
     } finally {
@@ -110,90 +150,203 @@ form.addEventListener("submit", async (event) => {
     }
 });
 
-function formatSize(bytes) {
-    if (bytes >= 1024 * 1024 * 1024) {
-        return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " Go";
-    }
-    if (bytes >= 1024 * 1024) {
-        return (bytes / (1024 * 1024)).toFixed(1) + " Mo";
-    }
-    return Math.round(bytes / 1024) + " Ko";
-}
-
-const progressWrap = document.getElementById("progress-wrap");
-const progressBar = document.getElementById("progress-bar");
-const progressStats = document.getElementById("progress-stats");
-
-function formatSpeed(bytesPerSecond) {
-    if (bytesPerSecond >= 1024 * 1024) {
-        return (bytesPerSecond / (1024 * 1024)).toFixed(1) + " Mo/s";
-    }
-    return Math.round(bytesPerSecond / 1024) + " Ko/s";
-}
-
-function formatEta(seconds) {
-    const s = Math.round(seconds);
-    const m = Math.floor(s / 60);
-    return m > 0 ? m + " min " + String(s % 60).padStart(2, "0") + " s" : s + " s";
-}
-
-function renderProgress(job) {
-    const percent = job.progress == null ? 0 : job.progress;
-    progressBar.style.width = percent + "%";
-
-    if (job.status === "queued") {
-        progressStats.textContent = "En attente du demarrage...";
-        return;
-    }
-    if (job.stage === "processing") {
-        progressStats.textContent = "Conversion / fusion en cours...";
+downloadBtn.addEventListener("click", async () => {
+    if (!currentVideo) {
         return;
     }
 
-    const parts = [percent.toFixed(1) + " %"];
-    if (job.speed != null) {
-        parts.push(formatSpeed(job.speed));
+    downloadBtn.disabled = true;
+    previewHint.textContent = "";
+
+    try {
+        const result = await postJson("download", {
+            id: currentVideo.id,
+            title: currentVideo.title,
+            format: formatSelect.value,
+        });
+        previewHint.textContent = result.jobs[0].duplicate
+            ? "Deja dans la file d'attente."
+            : "Ajoute a la file d'attente.";
+        await refreshJobs();
+    } catch (err) {
+        previewHint.textContent = "Echec : " + err.message;
+    } finally {
+        downloadBtn.disabled = false;
     }
-    if (job.eta != null) {
-        parts.push("reste " + formatEta(job.eta));
+});
+
+/* ------------------------------------------------------------------ */
+/* File d'attente                                                      */
+/* ------------------------------------------------------------------ */
+
+const jobsList = document.getElementById("jobs-list");
+const jobsEmpty = document.getElementById("jobs-empty");
+const jobsClear = document.getElementById("jobs-clear");
+
+const ACTIVE_STATUSES = ["queued", "starting", "running", "cancelling"];
+let jobsTimer = null;
+let knownFinished = new Set();
+
+function jobStatusText(job) {
+    switch (job.status) {
+        case "queued":
+            return "En attente";
+        case "starting":
+            return "Demarrage...";
+        case "cancelling":
+            return "Annulation...";
+        case "cancelled":
+            return "Annule";
+        case "error":
+            return "Echec : " + (job.error || "erreur inconnue");
+        case "finished":
+            return "Termine" + (job.size != null ? " (" + formatSize(job.size) + ")" : "");
+        case "running": {
+            if (job.stage === "processing") {
+                return "Conversion / fusion en cours...";
+            }
+            const parts = [(job.progress == null ? 0 : job.progress).toFixed(1) + " %"];
+            if (job.speed != null) {
+                parts.push(formatSpeed(job.speed));
+            }
+            if (job.eta != null) {
+                parts.push("reste " + formatEta(job.eta));
+            }
+            return parts.join("  ·  ");
+        }
+        default:
+            return job.status;
     }
-    progressStats.textContent = parts.join("  ·  ");
 }
 
-function endDownloadUi() {
-    downloadBtn.disabled = false;
-    downloadBtn.textContent = "Telecharger";
-}
+function renderJobs(jobs) {
+    jobsList.innerHTML = "";
+    jobsEmpty.classList.toggle("hidden", jobs.length > 0);
+    jobsClear.classList.toggle("hidden", !jobs.some((j) => !ACTIVE_STATUSES.includes(j.status)));
 
-function pollJob(jobId) {
-    const timer = setInterval(async () => {
-        let job;
-        try {
-            job = await api("status?id=" + encodeURIComponent(jobId));
-        } catch (err) {
-            clearInterval(timer);
-            endDownloadUi();
-            previewHint.textContent = "Echec du suivi : " + err.message;
-            return;
+    for (const job of jobs) {
+        const li = document.createElement("li");
+        li.className = "job job-" + job.status;
+
+        const head = document.createElement("div");
+        head.className = "job-head";
+
+        const title = document.createElement("span");
+        title.className = "job-title";
+        title.textContent = job.title || job.video_id;
+        title.title = job.title || job.video_id;
+
+        const badge = document.createElement("span");
+        badge.className = "job-badge";
+        badge.textContent = formatLabel(job.format);
+
+        const actions = document.createElement("div");
+        actions.className = "job-actions";
+
+        if (ACTIVE_STATUSES.includes(job.status)) {
+            const cancel = document.createElement("button");
+            cancel.type = "button";
+            cancel.className = "small-btn";
+            cancel.textContent = "Annuler";
+            cancel.disabled = job.status === "cancelling";
+            cancel.addEventListener("click", async () => {
+                cancel.disabled = true;
+                try {
+                    await postJson("cancel", { id: job.job_id });
+                } catch {
+                    cancel.disabled = false;
+                }
+                refreshJobs();
+            });
+            actions.appendChild(cancel);
+        } else {
+            if (job.status === "finished" && job.file) {
+                const play = document.createElement("a");
+                play.className = "small-btn";
+                play.textContent = "Lire";
+                play.href = API_BASE + "file?name=" + encodeURIComponent(job.file);
+                play.target = "_blank";
+                actions.appendChild(play);
+            }
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.className = "small-btn";
+            remove.textContent = "Retirer";
+            remove.addEventListener("click", async () => {
+                remove.disabled = true;
+                try {
+                    await postJson("jobs/remove", { id: job.job_id });
+                } catch {
+                    remove.disabled = false;
+                }
+                refreshJobs();
+            });
+            actions.appendChild(remove);
         }
 
-        renderProgress(job);
+        head.append(title, badge, actions);
 
-        if (job.status === "finished") {
-            clearInterval(timer);
-            endDownloadUi();
-            progressBar.style.width = "100%";
-            progressStats.textContent = "";
-            previewHint.textContent = "Termine : " + job.file + " (" + formatSize(job.size) + ")";
+        const status = document.createElement("p");
+        status.className = "job-status";
+        status.textContent = jobStatusText(job);
+
+        li.append(head);
+
+        if (job.status === "running" || job.status === "cancelling") {
+            const track = document.createElement("div");
+            track.className = "progress-track";
+            const bar = document.createElement("div");
+            bar.className = "progress-bar";
+            bar.style.width = (job.progress == null ? 0 : job.progress) + "%";
+            track.appendChild(bar);
+            li.appendChild(track);
+        }
+
+        li.appendChild(status);
+        jobsList.appendChild(li);
+    }
+}
+
+async function refreshJobs() {
+    let data;
+    try {
+        data = await api("jobs");
+    } catch {
+        return;
+    }
+
+    renderJobs(data.jobs);
+
+    // Un job vient de se terminer : la liste des fichiers a change.
+    for (const job of data.jobs) {
+        if (job.status === "finished" && !knownFinished.has(job.job_id)) {
+            knownFinished.add(job.job_id);
             loadFiles();
-        } else if (job.status === "error") {
-            clearInterval(timer);
-            endDownloadUi();
-            progressWrap.classList.add("hidden");
-            previewHint.textContent = "Echec : " + job.error;
         }
-    }, 500);
+    }
+
+    const active = data.jobs.some((j) => ACTIVE_STATUSES.includes(j.status));
+    if (active && jobsTimer === null) {
+        jobsTimer = setInterval(refreshJobs, 700);
+    } else if (!active && jobsTimer !== null) {
+        clearInterval(jobsTimer);
+        jobsTimer = null;
+    }
 }
+
+jobsClear.addEventListener("click", async () => {
+    jobsClear.disabled = true;
+    try {
+        await postJson("jobs/remove", { id: "all" });
+    } finally {
+        jobsClear.disabled = false;
+    }
+    refreshJobs();
+});
+
+/* ------------------------------------------------------------------ */
+/* Fichiers telecharges                                                */
+/* ------------------------------------------------------------------ */
 
 const filesList = document.getElementById("files-list");
 const filesEmpty = document.getElementById("files-empty");
@@ -234,13 +387,13 @@ async function loadFiles() {
         actions.className = "file-actions";
 
         const play = document.createElement("a");
-        play.className = "file-btn";
+        play.className = "small-btn";
         play.textContent = "Lire";
         play.href = API_BASE + "file?name=" + encodeURIComponent(file.name);
         play.target = "_blank";
 
         const dl = document.createElement("a");
-        dl.className = "file-btn";
+        dl.className = "small-btn";
         dl.textContent = "Telecharger";
         dl.href = API_BASE + "file?name=" + encodeURIComponent(file.name) + "&dl=1";
 
@@ -250,33 +403,16 @@ async function loadFiles() {
     }
 }
 
-downloadBtn.addEventListener("click", async () => {
-    if (!currentVideo) {
-        return;
+// Au chargement : on note les jobs deja termines pour ne pas recharger la
+// liste des fichiers une fois par job, puis on demarre le suivi s'il y a
+// des jobs actifs (l'onglet a pu etre ferme pendant un telechargement).
+api("jobs").then((data) => {
+    for (const job of data.jobs) {
+        if (job.status === "finished") {
+            knownFinished.add(job.job_id);
+        }
     }
-
-    downloadBtn.disabled = true;
-    downloadBtn.textContent = "Telechargement...";
-    previewHint.textContent = "";
-    progressBar.style.width = "0%";
-    progressStats.textContent = "Lancement...";
-    progressWrap.classList.remove("hidden");
-
-    try {
-        const result = await api("download", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                id: currentVideo.id,
-                format: formatSelect.value,
-            }),
-        });
-        pollJob(result.job_id);
-    } catch (err) {
-        endDownloadUi();
-        progressWrap.classList.add("hidden");
-        previewHint.textContent = "Echec : " + err.message;
-    }
+}).catch(() => {}).finally(() => {
+    refreshJobs();
+    loadFiles();
 });
-
-loadFiles();

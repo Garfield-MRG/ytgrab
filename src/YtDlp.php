@@ -320,6 +320,30 @@ final class YtDlp
     }
 
     /**
+     * Supprime ce que yt-dlp a laisse derriere lui pour une video : fichiers
+     * .part / .ytdl et flux intermediaires (.f137.mp4 avant fusion). Utilise
+     * apres une annulation. Les fichiers finaux ne sont jamais touches.
+     */
+    public static function cleanupPartials(string $videoId, string $outDir): void
+    {
+        if (!UrlValidator::isValidId($videoId)) {
+            return;
+        }
+
+        $marker = '[' . $videoId . ']';
+        foreach (scandir($outDir) ?: [] as $name) {
+            if (!str_contains($name, $marker)) {
+                continue;
+            }
+            $isTemp = preg_match('#\.(part|ytdl|temp)$#i', $name) === 1
+                || preg_match('#\]\.f\d+\.[A-Za-z0-9]{2,5}$#', $name) === 1;
+            if ($isTemp) {
+                @unlink($outDir . DIRECTORY_SEPARATOR . $name);
+            }
+        }
+    }
+
+    /**
      * Extrait un message d'erreur court et utile du stderr de yt-dlp.
      */
     public static function shortError(string $stderr): string

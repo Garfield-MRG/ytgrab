@@ -1,12 +1,13 @@
 <?php
 
 /**
- * Worker de telechargement, lance en process detache par /api/download.
+ * Worker de telechargement, lance en process detache par le planificateur.
  *
  * Usage : php bin/worker.php <job_id>
  *
  * Il execute yt-dlp, lit sa sortie ligne par ligne (--newline +
- * --progress-template) et ecrit l'avancement dans le JSON du job.
+ * --progress-template) et ecrit l'avancement dans le JSON du job. Quand il
+ * a fini, il demande au planificateur de lancer le job suivant.
  */
 
 declare(strict_types=1);
@@ -19,6 +20,8 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 
 use App\Config;
 use App\JobStore;
+use App\Process;
+use App\Scheduler;
 use App\YtDlp;
 
 $downloadsDir = Config::downloadsDir();
@@ -31,21 +34,31 @@ if (!JobStore::isValidJobId($jobId)) {
 }
 
 $store = new JobStore($jobsDir);
+$scheduler = new Scheduler($store);
 $job = $store->get($jobId);
 if ($job === null) {
     fwrite(STDERR, "job introuvable\n");
     exit(1);
 }
 
-$fail = function (string $message) use ($store, $jobId): never {
-    $store->update($jobId, [
-        'status' => 'error',
-        'error' => $message,
-        'speed' => null,
-        'eta' => null,
-    ]);
-    exit(1);
+$finish = function (array $patch, int $exitCode) use ($store, $scheduler, $jobId): never {
+    $store->update($jobId, $patch + ['speed' => null, 'eta' => null, 'stage' => null]);
+    // Notre place est libre : le planificateur lance le suivant.
+    $scheduler->dispatch();
+    exit($exitCode);
 };
+
+$fail = fn (string $message): never => $finish(['status' => 'error', 'error' => $message], 1);
+
+$cancelled = function () use ($finish, $downloadsDir, $job): never {
+    YtDlp::cleanupPartials((string) $job['video_id'], $downloadsDir);
+    $finish(['status' => 'cancelled', 'error' => null], 0);
+};
+
+// Annule entre la mise en file et notre demarrage.
+if ($job['status'] === 'cancelling') {
+    $cancelled();
+}
 
 try {
     $args = YtDlp::downloadArgs((string) $job['video_id'], (string) $job['format'], $downloadsDir);
@@ -67,12 +80,21 @@ if (!\is_resource($proc)) {
     $fail('Impossible de lancer yt-dlp');
 }
 
-$procStatus = proc_get_status($proc);
-$store->update($jobId, [
-    'status' => 'running',
-    'worker_pid' => getmypid(),
-    'ytdlp_pid' => $procStatus['pid'],
-]);
+$ytdlpPid = (int) proc_get_status($proc)['pid'];
+
+// On enregistre les PID sous verrou pour ne pas ecraser une annulation
+// arrivee pendant le proc_open. Si elle est arrivee, on tue tout de suite.
+$store->withLock(function () use ($store, $jobId, $ytdlpPid): void {
+    $current = $store->get($jobId);
+    $patch = ['worker_pid' => getmypid(), 'ytdlp_pid' => $ytdlpPid];
+    if (($current['status'] ?? '') !== 'cancelling') {
+        $patch['status'] = 'running';
+    }
+    $store->update($jobId, $patch);
+    if (($current['status'] ?? '') === 'cancelling') {
+        Process::kill($ytdlpPid);
+    }
+});
 
 $plainLines = [];
 $lastWrite = 0.0;
@@ -140,6 +162,12 @@ $exitCode = proc_close($proc);
 $stderr = @file_get_contents($stderrFile);
 @unlink($stderrFile);
 
+// Si yt-dlp s'est arrete parce qu'on l'a tue, ce n'est pas une erreur.
+$current = $store->get($jobId);
+if (($current['status'] ?? '') === 'cancelling') {
+    $cancelled();
+}
+
 if ($exitCode !== 0) {
     $fail(YtDlp::shortError($stderr === false ? '' : $stderr));
 }
@@ -149,12 +177,9 @@ if ($filePath === null) {
     $fail('Telechargement termine mais fichier introuvable');
 }
 
-$store->update($jobId, [
+$finish([
     'status' => 'finished',
     'progress' => 100.0,
-    'speed' => null,
-    'eta' => null,
-    'stage' => null,
     'file' => basename($filePath),
     'size' => (int) filesize($filePath),
-]);
+], 0);
