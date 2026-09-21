@@ -1,9 +1,9 @@
 # ytgrab
 
 Telechargeur YouTube local et self-hosted. Tu colles une URL, tu choisis le
-format, ca telecharge directement dans ton dossier Telechargements avec la
-progression en direct. Usage strictement personnel, sur ta machine, en local
-uniquement.
+format, ca part dans une file d'attente et ca telecharge directement dans ton
+dossier Telechargements avec la progression en direct. Usage strictement
+personnel, sur ta machine, en local uniquement.
 
 ## Fonctionnalites
 
@@ -11,10 +11,19 @@ uniquement.
   resolutions disponibles
 - Choix du format : meilleure qualite mp4, resolution precise, ou audio seul
   en mp3
-- Telechargement en process detache : l'interface reste reactive, la
-  progression (pourcentage, vitesse, temps restant) s'affiche en direct
+- File d'attente : les videos se telechargent une par une, dans l'ordre
+  d'ajout, chacune avec sa progression (pourcentage, vitesse, temps restant)
+- Annulation d'un telechargement en attente ou en cours, avec nettoyage des
+  fichiers partiels
+- Playlists : colle une URL `youtube.com/playlist?list=...`, l'appli liste
+  les videos (50 au maximum) et les ajoute toutes a la file dans le format
+  choisi
+- Bouton de mise a jour de yt-dlp depuis l'interface (YouTube casse
+  regulierement les vieilles versions, ca evite d'ouvrir un terminal)
 - Liste des fichiers telecharges, lecture dans le navigateur (streaming avec
   support des requetes Range) ou telechargement
+- Les telechargements survivent a la fermeture de l'onglet : le worker
+  tourne en process detache et la page retrouve la file au rechargement
 
 ## Prerequis
 
@@ -87,10 +96,12 @@ l'exterieur de la machine.
 public/index.php      routeur + vue unique
 public/assets/        CSS et JS vanilla, aucun build
 bin/worker.php        worker de telechargement (process detache)
-src/Config.php        chemins partages entre routeur et worker
+src/Config.php        chemins et reglages partages entre routeur et worker
 src/YtDlp.php         wrapper du binaire yt-dlp
-src/JobStore.php      etat des jobs (1 fichier JSON par job)
-src/UrlValidator.php  validation d'URL + extraction de l'ID video
+src/JobStore.php      etat des jobs (1 fichier JSON par job) + verrou
+src/Scheduler.php     file d'attente : qui demarre, qui s'annule
+src/Process.php       PID vivant ? tuer un process ? (sans extension posix)
+src/UrlValidator.php  validation d'URL + extraction de l'ID video/playlist
 storage/downloads/    dossier de secours si Telechargements introuvable
 storage/jobs/         etat des jobs
 ```
@@ -114,16 +125,25 @@ Tous les endpoints passent par `index.php/api/...` (voir Notes techniques).
 | Endpoint | Methode | Role |
 |---|---|---|
 | `/api/health` | GET | Etat des binaires yt-dlp et ffmpeg |
-| `/api/metadata` | POST `{url}` | Preview : titre, miniature, duree, resolutions |
-| `/api/download` | POST `{id, format}` | Lance un job detache, repond 202 avec `job_id` |
-| `/api/status?id=X` | GET | Etat du job : statut, progression, vitesse, ETA |
+| `/api/metadata` | POST `{url}` | Preview d'une video (titre, miniature, duree, resolutions) ou d'une playlist (`type: playlist`, liste des videos) |
+| `/api/download` | POST `{format, items: [{id, title}, ...]}` | Ajoute les videos a la file, repond 202 avec un `job_id` par video (`duplicate: true` si elle y etait deja). `{id, format, title}` marche aussi pour une seule video |
+| `/api/jobs` | GET | Tous les jobs, du plus recent au plus ancien, avec statut et progression |
+| `/api/status?id=X` | GET | Etat d'un seul job |
+| `/api/cancel` | POST `{id}` | Annule un job en attente ou en cours |
+| `/api/jobs/remove` | POST `{id}` | Retire un job termine de la liste (`id: "all"` pour tous les termines) |
+| `/api/update-ytdlp` | POST | Lance `yt-dlp -U`, refuse (409) si un telechargement tourne |
 | `/api/files` | GET | Liste des fichiers telecharges |
 | `/api/file?name=X` | GET | Streaming d'un fichier (`&dl=1` pour forcer le telechargement) |
 
-Le front poll `/api/status` toutes les 500 ms pendant un telechargement.
+Le front poll `/api/jobs` toutes les 700 ms tant qu'un job est actif, puis
+s'arrete.
 
 Les formats acceptes par `/api/download` : `best` (meilleure qualite mp4),
 une hauteur en pixels (`1080`, `720`, ...), ou `mp3`.
+
+Statuts d'un job : `queued`, `starting`, `running`, `cancelling`, puis
+`finished`, `error` ou `cancelled`. Les jobs termines sont oublies au bout
+de 24 h.
 
 ## Notes techniques
 
@@ -136,7 +156,18 @@ une hauteur en pixels (`1080`, `720`, ...), ou `mp3`.
 - Le telechargement tourne dans `bin/worker.php`, lance en process detache
   (`start /b` sous Windows, `sh -c '... &'` sous POSIX) : il survit a la fin
   de la requete HTTP et ecrit sa progression dans le JSON du job, que
-  `/api/status` se contente de relire.
+  `/api/jobs` se contente de relire.
+- Pas de demon pour la file d'attente. A chaque evenement (ajout, fin d'un
+  worker, annulation, consultation de la liste), `Scheduler::dispatch()`
+  prend un verrou (`flock` sur `storage/jobs/.lock`), repere les workers
+  morts et demarre le job suivant s'il y a de la place. Le nombre de
+  telechargements simultanes est `Config::MAX_CONCURRENT` (1 par defaut).
+- L'annulation tue yt-dlp (`taskkill /T` sous Windows, `kill` sinon) ; c'est
+  le worker qui constate l'arret, supprime les `.part` et flux intermediaires
+  de la video, puis passe le job en `cancelled`.
+- Une playlist est listee avec `--flat-playlist --playlist-end 50`, sans
+  resoudre chaque video. Chaque entree devient ensuite un job ordinaire :
+  yt-dlp n'a jamais a telecharger une playlist entiere d'un coup.
 - Les noms de fichiers viennent du template yt-dlp
   `%(title)s [%(id)s].%(ext)s` avec `--restrict-filenames`, et tout chemin
   est verifie par `realpath()` avant d'etre servi ou accepte (protection
