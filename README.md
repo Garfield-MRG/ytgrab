@@ -1,63 +1,55 @@
 # ytgrab
 
-Telechargeur YouTube local et self-hosted. Tu colles une URL, tu choisis le
-format, ca part dans une file d'attente et ca telecharge directement dans ton
-dossier Telechargements avec la progression en direct. Usage strictement
-personnel, sur ta machine, en local uniquement.
+Telechargeur YouTube qui tourne sur ta machine. Tu colles une URL, tu choisis
+un format, la video atterrit dans ton dossier Telechargements. Une page web,
+pas de compte, rien ne sort du PC. C'est fait pour un usage perso.
 
-## Fonctionnalites
+## Ce que ca fait
 
-- Preview de la video au collage de l'URL : titre, miniature, duree,
-  resolutions disponibles
-- Choix du format : meilleure qualite mp4, resolution precise, ou audio seul
-  en mp3
-- File d'attente : les videos se telechargent une par une, dans l'ordre
-  d'ajout, chacune avec sa progression (pourcentage, vitesse, temps restant)
-- Annulation d'un telechargement en attente ou en cours, avec nettoyage des
-  fichiers partiels
-- Playlists : colle une URL `youtube.com/playlist?list=...`, l'appli liste
-  les videos (50 au maximum) et les ajoute toutes a la file dans le format
-  choisi
-- Bouton de mise a jour de yt-dlp depuis l'interface (YouTube casse
-  regulierement les vieilles versions, ca evite d'ouvrir un terminal)
-- Liste des fichiers telecharges, lecture dans le navigateur (streaming avec
-  support des requetes Range) ou telechargement
-- Les telechargements survivent a la fermeture de l'onglet : le worker
-  tourne en process detache et la page retrouve la file au rechargement
+- Preview au collage de l'URL : titre, miniature, duree et resolutions dispo
+- mp4 en meilleure qualite ou dans une resolution precise, ou mp3 seul
+- File d'attente. Les videos partent une par une, chacune avec sa progression
+  (pourcentage, vitesse, temps restant)
+- Annulation d'un job en attente ou en cours, les fichiers partiels sont
+  supprimes
+- Playlists jusqu'a 50 videos, ajoutees d'un coup dans le format choisi
+- Bouton pour mettre yt-dlp a jour. YouTube casse regulierement les vieilles
+  versions et c'est la premiere chose a essayer quand un telechargement
+  echoue avec une erreur 403
+- Lecture des fichiers dans le navigateur. Le streaming gere les requetes
+  Range, donc on peut avancer dans la video
+
+Tu peux fermer l'onglet pendant un telechargement, il continue. Le worker
+tourne dans un process a part et la page retrouve la file quand tu reviens.
 
 ## Prerequis
 
-- PHP 8.3 ou plus recent
-- Composer (uniquement pour generer l'autoload)
-- yt-dlp
-- ffmpeg
+PHP 8.3 minimum, Composer (juste pour l'autoload), yt-dlp et ffmpeg.
 
-### Installer yt-dlp et ffmpeg
-
-**Windows**
+Windows :
 
 ```
 winget install yt-dlp.yt-dlp
 ```
 
-Le paquet winget installe aussi ffmpeg. Rouvre ton terminal apres
-l'installation pour que le PATH soit a jour.
+Ce paquet embarque ffmpeg. Rouvre ton terminal ensuite, sinon le PATH n'est
+pas a jour.
 
-**macOS**
+macOS :
 
 ```
 brew install yt-dlp ffmpeg
 ```
 
-**Linux (Debian/Ubuntu)**
+Debian/Ubuntu :
 
 ```
 sudo apt install ffmpeg
 pipx install yt-dlp
 ```
 
-La version apt de yt-dlp est souvent trop vieille, prefere pipx (ou
-`python3 -m pip install -U yt-dlp`).
+Evite le yt-dlp d'apt, il a souvent plusieurs mois de retard et YouTube ne
+l'accepte plus.
 
 ## Installation
 
@@ -65,7 +57,7 @@ La version apt de yt-dlp est souvent trop vieille, prefere pipx (ou
 composer dump-autoload
 ```
 
-C'est tout. Aucune dependance, Composer ne sert qu'a generer l'autoload PSR-4.
+Il n'y a aucune dependance, Composer genere juste l'autoload PSR-4.
 
 ## Lancement
 
@@ -73,60 +65,53 @@ C'est tout. Aucune dependance, Composer ne sert qu'a generer l'autoload PSR-4.
 php -S 127.0.0.1:8080 -t public/
 ```
 
-Puis ouvre http://127.0.0.1:8080 dans ton navigateur.
+Puis http://127.0.0.1:8080 dans ton navigateur.
 
-Sur macOS et Linux, lance plutot :
+Sur macOS et Linux, ajoute `PHP_CLI_SERVER_WORKERS=4` devant la commande. Le
+serveur integre de PHP ne traite qu'une requete a la fois, et avec plusieurs
+workers le suivi de progression ne saccade pas pendant qu'une analyse d'URL
+tourne. Sous Windows la variable est ignoree, mais comme les telechargements
+sont dans des process a part, ca reste utilisable.
 
-```
-PHP_CLI_SERVER_WORKERS=4 php -S 127.0.0.1:8080 -t public/
-```
+Le serveur n'ecoute que sur 127.0.0.1. Personne d'autre sur le reseau ne peut
+y acceder.
 
-Le serveur integre de PHP est mono-thread par defaut : avec plusieurs workers,
-le polling de progression reste fluide meme quand une requete est occupee.
-Cette variable n'a pas d'effet sur Windows (limitation de PHP), mais les
-telechargements tournent dans des process detaches donc aucune requete ne
-bloque longtemps.
+### En fond
 
-Le serveur ecoute uniquement sur 127.0.0.1 : rien n'est accessible depuis
-l'exterieur de la machine.
+La commande ci-dessus occupe le terminal. Pour lancer le serveur et fermer la
+fenetre, depuis le dossier du projet :
 
-### Lancer le serveur en fond
-
-La commande ci-dessus bloque le terminal. Pour le garder libre et fermer la
-fenetre sans couper le serveur :
-
-**Windows (PowerShell)**
+Windows (PowerShell) :
 
 ```
 Start-Process php -ArgumentList '-S 127.0.0.1:8080 -t public/' -WindowStyle Hidden
 ```
 
-Pour l'arreter :
+Pour l'arreter : `taskkill /F /IM php.exe`. Ca tue tous les php.exe, y
+compris un telechargement en cours, donc attends que la file soit vide.
 
-```
-taskkill /F /IM php.exe
-```
-
-Attention, ca arrete tous les process php.exe, workers de telechargement
-compris : attends que la file soit vide avant.
-
-**macOS et Linux**
+macOS et Linux :
 
 ```
 PHP_CLI_SERVER_WORKERS=4 nohup php -S 127.0.0.1:8080 -t public/ > /dev/null 2>&1 &
 ```
 
-Pour l'arreter :
+Pour l'arreter : `pkill -f "php -S 127.0.0.1:8080"`. Les workers ne sont pas
+concernes, un telechargement en cours va jusqu'au bout.
 
-```
-pkill -f "php -S 127.0.0.1:8080"
-```
+## Ou vont les fichiers
 
-Les workers ne sont pas touches par cette commande : un telechargement en
-cours va jusqu'au bout meme si le serveur est coupe, tu retrouveras le
-fichier au prochain lancement.
+Dans le dossier Telechargements de ta session (`%USERPROFILE%\Downloads` sous
+Windows, `~/Downloads` ailleurs). S'il n'existe pas, `storage/downloads/`
+prend le relais. Le dossier utilise est affiche dans la page.
 
-Dans les deux cas, lance la commande depuis le dossier du projet.
+Ce dossier contient aussi tes fichiers perso. L'appli ne liste et ne sert que
+ceux qui portent le suffixe `[id video]` ajoute par yt-dlp au nom, les autres
+restent invisibles.
+
+Si tu retelecharges une video dans une autre qualite, yt-dlp voit que le
+fichier existe deja (le nom ne contient pas la qualite) et ne fait rien.
+Supprime le fichier d'abord.
 
 ## Arborescence
 
@@ -144,21 +129,9 @@ storage/downloads/    dossier de secours si Telechargements introuvable
 storage/jobs/         etat des jobs
 ```
 
-## Ou vont les fichiers
-
-Les fichiers atterrissent dans le dossier Telechargements de ta session
-(`%USERPROFILE%\Downloads` sous Windows, `~/Downloads` sinon), avec
-`storage/downloads/` en secours si ce dossier n'existe pas. Le dossier utilise
-est affiche dans l'interface.
-
-Comme ce dossier contient aussi tes fichiers personnels, l'appli ne liste et
-ne sert que les fichiers produits par ytgrab, reconnaissables au suffixe
-`[id video]` impose par le template de nommage. Le reste du dossier n'est
-jamais expose.
-
 ## API
 
-Tous les endpoints passent par `index.php/api/...` (voir Notes techniques).
+Tout passe par `index.php/api/...`, la raison est expliquee plus bas.
 
 | Endpoint | Methode | Role |
 |---|---|---|
@@ -173,47 +146,47 @@ Tous les endpoints passent par `index.php/api/...` (voir Notes techniques).
 | `/api/files` | GET | Liste des fichiers telecharges |
 | `/api/file?name=X` | GET | Streaming d'un fichier (`&dl=1` pour forcer le telechargement) |
 
-Le front poll `/api/jobs` toutes les 700 ms tant qu'un job est actif, puis
-s'arrete.
+Le front interroge `/api/jobs` toutes les 700 ms tant qu'un job est actif.
 
-Les formats acceptes par `/api/download` : `best` (meilleure qualite mp4),
-une hauteur en pixels (`1080`, `720`, ...), ou `mp3`.
+Formats acceptes : `best`, une hauteur en pixels (`1080`, `720`) ou `mp3`.
 
 Statuts d'un job : `queued`, `starting`, `running`, `cancelling`, puis
-`finished`, `error` ou `cancelled`. Les jobs termines sont oublies au bout
-de 24 h.
+`finished`, `error` ou `cancelled`. Les jobs termines sont oublies apres
+24 h.
 
-## Notes techniques
+## Comment c'est fait
 
-- Les commandes externes sont lancees via `proc_open()` avec la commande en
-  tableau d'arguments : aucune entree utilisateur ne passe par un shell.
-- L'URL collee n'est jamais transmise telle quelle a yt-dlp : on extrait l'ID
-  video avec une regex stricte puis on reconstruit une URL canonique.
-- Les appels API passent par `index.php/api/...` car le serveur integre de
-  PHP ne reecrit pas les URLs.
-- Le telechargement tourne dans `bin/worker.php`, lance en process detache
-  (`start /b` sous Windows, `sh -c '... &'` sous POSIX) : il survit a la fin
-  de la requete HTTP et ecrit sa progression dans le JSON du job, que
-  `/api/jobs` se contente de relire.
-- Pas de demon pour la file d'attente. A chaque evenement (ajout, fin d'un
-  worker, annulation, consultation de la liste), `Scheduler::dispatch()`
-  prend un verrou (`flock` sur `storage/jobs/.lock`), repere les workers
-  morts et demarre le job suivant s'il y a de la place. Le nombre de
-  telechargements simultanes est `Config::MAX_CONCURRENT` (1 par defaut).
-- L'annulation tue yt-dlp (`taskkill /T` sous Windows, `kill` sinon) ; c'est
-  le worker qui constate l'arret, supprime les `.part` et flux intermediaires
-  de la video, puis passe le job en `cancelled`.
-- Une playlist est listee avec `--flat-playlist --playlist-end 50`, sans
-  resoudre chaque video. Chaque entree devient ensuite un job ordinaire :
-  yt-dlp n'a jamais a telecharger une playlist entiere d'un coup.
-- Les noms de fichiers viennent du template yt-dlp
-  `%(title)s [%(id)s].%(ext)s` avec `--restrict-filenames`, et tout chemin
-  est verifie par `realpath()` avant d'etre servi ou accepte (protection
-  path traversal).
-- Retelechargez la meme video dans une autre qualite et yt-dlp verra le
-  fichier existant (meme nom) et ne retelechargera pas : supprimez d'abord
-  le fichier si vous voulez changer de qualite.
+Aucune commande externe ne passe par un shell. Tout est lance avec
+`proc_open()` et un tableau d'arguments. L'URL collee n'est d'ailleurs jamais
+donnee a yt-dlp : on en extrait l'ID avec une regex stricte et on reconstruit
+une URL propre.
+
+Les appels API passent par `index.php/api/...` parce que le serveur integre de
+PHP ne reecrit pas les URLs. Sans ca, `/api/health` renverrait un 404.
+
+Le telechargement tourne dans `bin/worker.php`, lance en process detache
+(`start /b` sous Windows, `sh -c '... &'` ailleurs). Il survit a la requete
+HTTP et ecrit sa progression dans le JSON du job. `/api/jobs` ne fait que
+relire ces fichiers.
+
+Il n'y a pas de demon pour la file. A chaque evenement (ajout, fin d'un
+worker, annulation, ou simple affichage de la liste), `Scheduler::dispatch()`
+prend un verrou `flock` sur `storage/jobs/.lock`, repere les workers morts et
+lance le job suivant s'il reste une place. `Config::MAX_CONCURRENT` fixe le
+nombre de telechargements en parallele. J'ai laisse 1, deux yt-dlp en meme
+temps se partagent la bande passante sans aller plus vite au total.
+
+L'annulation tue yt-dlp (`taskkill /T` sous Windows, `kill` ailleurs). Le
+worker voit le process s'arreter, supprime les `.part` et les flux
+intermediaires de la video, et passe le job en `cancelled`.
+
+Une playlist est lue avec `--flat-playlist --playlist-end 50`, ce qui evite de
+resoudre chaque video. Chaque entree devient ensuite un job normal.
+
+Les noms de fichiers sortent du template `%(title)s [%(id)s].%(ext)s` avec
+`--restrict-filenames`. Tout chemin passe par `realpath()` avant d'etre servi,
+pour ne jamais sortir du dossier de telechargement.
 
 ## Licence
 
-MIT, voir le fichier [LICENSE](LICENSE).
+MIT, voir [LICENSE](LICENSE).

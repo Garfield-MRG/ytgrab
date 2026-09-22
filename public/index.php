@@ -373,11 +373,9 @@ function e(string $s): string
 
     <?php if (!$allFound): ?>
     <section class="banner error">
-        <strong>Binaires manquants.</strong>
-        L'application a besoin de yt-dlp et ffmpeg pour fonctionner.
-        Commande d'installation :
+        Il manque yt-dlp ou ffmpeg. Installe-les avec :
         <code><?= e($installHint) ?></code>
-        Relance ensuite le serveur.
+        puis relance le serveur.
     </section>
     <?php endif; ?>
 
