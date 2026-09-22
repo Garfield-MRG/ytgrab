@@ -57,16 +57,12 @@ function json_response(array $data, int $status = 200): never
  */
 function serve_download_file(string $name, bool $attachment): never
 {
-    // Le nom ne doit etre qu'un nom de fichier : pas de separateur de
-    // chemin, pas de fichier cache. Puis realpath doit rester dans le
-    // dossier de telechargements.
+    // Un nom de fichier nu (pas de separateur, pas de fichier cache), qui
+    // vient de ytgrab, et dont le realpath reste dans le dossier.
     if ($name === '' || $name[0] === '.' || preg_match('#[/\\\\]#', $name) === 1) {
         http_response_code(404);
         exit;
     }
-    // On ne sert que les fichiers produits par ytgrab (suffixe [id video]) :
-    // le dossier est le Telechargements de l'utilisateur, ses fichiers
-    // personnels ne doivent pas etre accessibles.
     if (!YtDlp::isManagedFile($name)) {
         http_response_code(404);
         exit;
@@ -220,7 +216,7 @@ if ($path === '/api/download' && $method === 'POST') {
 }
 
 if ($path === '/api/update-ytdlp' && $method === 'POST') {
-    // Remplacer l'executable pendant qu'un telechargement tourne : non.
+    // yt-dlp -U remplace l'executable, pas pendant qu'un telechargement l'utilise.
     $store = new JobStore(JOBS_DIR);
     foreach ($store->all() as $job) {
         if (JobStore::isActive($job)) {
@@ -316,7 +312,6 @@ if ($path === '/api/files' && $method === 'GET') {
         if (\in_array($ext, ['part', 'ytdl', 'tmp'], true)) {
             continue;
         }
-        // Seuls les fichiers produits par ytgrab, jamais le reste du dossier.
         if (!YtDlp::isManagedFile($name)) {
             continue;
         }

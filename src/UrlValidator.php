@@ -5,11 +5,9 @@ declare(strict_types=1);
 namespace App;
 
 /**
- * Validation des URLs YouTube.
- *
- * Principe : on n'accepte que trois formes d'URL (watch, youtu.be, shorts),
- * on en extrait l'ID video, et le reste de l'application ne travaille plus
- * qu'avec cet ID. L'entree brute de l'utilisateur ne sort jamais d'ici.
+ * Validation des URLs YouTube. On accepte quatre formes (watch, youtu.be,
+ * shorts, playlist), on en extrait l'ID et le reste de l'application ne
+ * travaille qu'avec cet ID.
  */
 final class UrlValidator
 {

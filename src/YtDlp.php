@@ -5,11 +5,8 @@ declare(strict_types=1);
 namespace App;
 
 /**
- * Wrapper des binaires externes (yt-dlp, ffmpeg).
- *
- * Regle absolue : toute commande est construite sous forme de tableau
- * d'arguments et passee a proc_open(). Jamais de shell, jamais de
- * concatenation de chaine avec une entree utilisateur.
+ * Wrapper des binaires externes (yt-dlp, ffmpeg). Toutes les commandes
+ * passent par proc_open() avec un tableau d'arguments, jamais par un shell.
  */
 final class YtDlp
 {
@@ -137,10 +134,8 @@ final class YtDlp
     }
 
     /**
-     * Recupere les metadonnees d'une video via `yt-dlp -J`.
-     *
-     * Ne prend qu'un ID video deja valide : l'URL passee a yt-dlp est
-     * toujours l'URL canonique reconstruite, jamais l'entree utilisateur.
+     * Recupere les metadonnees d'une video via `yt-dlp -J`. L'URL est
+     * reconstruite depuis l'ID, pas reprise de la saisie.
      *
      * @return array{id:string, title:string, channel:string, thumbnail:string, duration:int, heights:list<int>}
      */
@@ -245,10 +240,9 @@ final class YtDlp
     }
 
     /**
-     * Vrai si le nom de fichier vient bien de ytgrab : le template de sortie
-     * impose un suffixe [id video]. Le dossier de telechargement etant le
-     * dossier Telechargements de l'utilisateur, ce filtre garantit qu'on ne
-     * liste ni ne sert jamais ses fichiers personnels.
+     * Vrai si le fichier vient de ytgrab. Le template de sortie ajoute un
+     * suffixe [id video], c'est ce qui distingue nos fichiers de ceux de
+     * l'utilisateur dans son dossier Telechargements.
      */
     public static function isManagedFile(string $name): bool
     {
@@ -315,11 +309,9 @@ final class YtDlp
     }
 
     /**
-     * Lance le worker de telechargement en process detache : la requete HTTP
-     * rend la main tout de suite, le worker survit a la fin de la requete.
-     *
-     * Le job id est genere par le serveur (16 caracteres hexadecimaux) et les
-     * chemins viennent de la configuration : aucune entree utilisateur ici.
+     * Lance le worker de telechargement en process detache, qui survit a la
+     * fin de la requete HTTP. Le job id est genere par le serveur et les
+     * chemins viennent de la config, rien ici ne vient de l'utilisateur.
      */
     public static function spawnWorker(string $workerScript, string $jobId): void
     {
@@ -328,14 +320,11 @@ final class YtDlp
         }
 
         if (self::isWindows()) {
-            // `start /b` rend la main immediatement : proc_close n'attend que
-            // cmd, pas le worker. En tableau d'arguments, PHP quote `start` et
-            // cmd ne reconnait plus sa commande interne, donc cette couche de
-            // detachement passe par une chaine. C'est la seule du projet, et
-            // elle ne contient aucune entree utilisateur : le job id est
-            // valide ([a-f0-9]{16}) et les chemins viennent de la config.
-            // Le "" est le titre de fenetre que start attend quand un
-            // argument est quote.
+            // `start /b` rend la main tout de suite, proc_close n'attend que
+            // cmd. En tableau d'arguments PHP quote `start` et cmd ne
+            // reconnait plus sa commande interne, d'ou une chaine ici (la
+            // seule du projet). Le "" est le titre de fenetre que start
+            // attend quand un argument est quote.
             $quote = static fn (string $p): string => '"' . str_replace('"', '', $p) . '"';
             $cmd = 'start /b "" ' . $quote(PHP_BINARY) . ' ' . $quote($workerScript) . ' ' . $jobId;
             $options = []; // bypass_shell absent : la chaine passe par cmd /c
@@ -381,9 +370,8 @@ final class YtDlp
     }
 
     /**
-     * Supprime ce que yt-dlp a laisse derriere lui pour une video : fichiers
-     * .part / .ytdl et flux intermediaires (.f137.mp4 avant fusion). Utilise
-     * apres une annulation. Les fichiers finaux ne sont jamais touches.
+     * Apres une annulation, supprime ce que yt-dlp a laisse pour une video :
+     * .part, .ytdl et flux intermediaires (.f137.mp4 avant fusion).
      */
     public static function cleanupPartials(string $videoId, string $outDir): void
     {
