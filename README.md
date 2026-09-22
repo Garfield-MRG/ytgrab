@@ -90,6 +90,44 @@ bloque longtemps.
 Le serveur ecoute uniquement sur 127.0.0.1 : rien n'est accessible depuis
 l'exterieur de la machine.
 
+### Lancer le serveur en fond
+
+La commande ci-dessus bloque le terminal. Pour le garder libre et fermer la
+fenetre sans couper le serveur :
+
+**Windows (PowerShell)**
+
+```
+Start-Process php -ArgumentList '-S 127.0.0.1:8080 -t public/' -WindowStyle Hidden
+```
+
+Pour l'arreter :
+
+```
+taskkill /F /IM php.exe
+```
+
+Attention, ca arrete tous les process php.exe, workers de telechargement
+compris : attends que la file soit vide avant.
+
+**macOS et Linux**
+
+```
+PHP_CLI_SERVER_WORKERS=4 nohup php -S 127.0.0.1:8080 -t public/ > /dev/null 2>&1 &
+```
+
+Pour l'arreter :
+
+```
+pkill -f "php -S 127.0.0.1:8080"
+```
+
+Les workers ne sont pas touches par cette commande : un telechargement en
+cours va jusqu'au bout meme si le serveur est coupe, tu retrouveras le
+fichier au prochain lancement.
+
+Dans les deux cas, lance la commande depuis le dossier du projet.
+
 ## Arborescence
 
 ```
