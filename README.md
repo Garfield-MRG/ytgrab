@@ -1,8 +1,8 @@
 # ytgrab
 
-Telechargeur YouTube qui tourne sur ta machine. Tu colles une URL, tu choisis
-un format, la video atterrit dans ton dossier Telechargements. Une page web,
-pas de compte, rien ne sort du PC. C'est fait pour un usage perso.
+Page web servie par PHP sur ta machine pour telecharger des videos YouTube.
+Tu colles une URL, tu choisis un format, le fichier arrive dans ton dossier
+Telechargements.
 
 ## Ce que ca fait
 
@@ -57,7 +57,7 @@ l'accepte plus.
 composer dump-autoload
 ```
 
-Il n'y a aucune dependance, Composer genere juste l'autoload PSR-4.
+Composer ne sert qu'a generer l'autoload PSR-4, il n'y a aucune dependance.
 
 ## Lancement
 
@@ -73,8 +73,7 @@ workers le suivi de progression ne saccade pas pendant qu'une analyse d'URL
 tourne. Sous Windows la variable est ignoree, mais comme les telechargements
 sont dans des process a part, ca reste utilisable.
 
-Le serveur n'ecoute que sur 127.0.0.1. Personne d'autre sur le reseau ne peut
-y acceder.
+Le serveur n'ecoute que sur 127.0.0.1.
 
 ### En fond
 
@@ -105,9 +104,8 @@ Dans le dossier Telechargements de ta session (`%USERPROFILE%\Downloads` sous
 Windows, `~/Downloads` ailleurs). S'il n'existe pas, `storage/downloads/`
 prend le relais. Le dossier utilise est affiche dans la page.
 
-Ce dossier contient aussi tes fichiers perso. L'appli ne liste et ne sert que
-ceux qui portent le suffixe `[id video]` ajoute par yt-dlp au nom, les autres
-restent invisibles.
+Comme ce dossier contient aussi tes fichiers perso, l'appli ne liste et ne
+sert que ceux qui portent le suffixe `[id video]` ajoute par yt-dlp au nom.
 
 Si tu retelecharges une video dans une autre qualite, yt-dlp voit que le
 fichier existe deja (le nom ne contient pas la qualite) et ne fait rien.
@@ -156,10 +154,9 @@ Statuts d'un job : `queued`, `starting`, `running`, `cancelling`, puis
 
 ## Comment c'est fait
 
-Aucune commande externe ne passe par un shell. Tout est lance avec
-`proc_open()` et un tableau d'arguments. L'URL collee n'est d'ailleurs jamais
-donnee a yt-dlp : on en extrait l'ID avec une regex stricte et on reconstruit
-une URL propre.
+Les commandes externes sont lancees avec `proc_open()` et un tableau
+d'arguments, jamais via un shell. L'URL collee n'est pas donnee a yt-dlp non
+plus : on en extrait l'ID avec une regex stricte et on reconstruit l'URL.
 
 Les appels API passent par `index.php/api/...` parce que le serveur integre de
 PHP ne reecrit pas les URLs. Sans ca, `/api/health` renverrait un 404.
